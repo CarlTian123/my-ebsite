@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+<meta name="theme-color" content="#02080e" />
+<title>蓝鱼枪战 · 深海火拼</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- ==================== HUD ==================== -->
+<div id="hud">
+
+  <!-- 左侧仪表：生命 / 枪械 / 冲刺 / 等级 -->
+  <div class="panel hudPanel" id="leftPanel">
+    <div class="hudHead">
+      <span class="hudKicker">VITALS</span>
+      <span class="hudLive"><i></i>深潜中</span>
+    </div>
+
+    <div class="row hpRow">
+      <span class="k">生命值</span>
+      <span class="v"><span class="big" id="hpText">20</span><span class="tiny" id="hpMax"> / 20</span></span>
+    </div>
+    <div class="bar hpBar"><i id="hpFill"></i></div>
+
+    <div id="shWrap" class="hidden">
+      <div class="row"><span class="k">护盾</span><span class="v" id="shText">1</span></div>
+      <div class="bar shBar"><i id="shFill"></i></div>
+    </div>
+
+    <div class="hudDiv"></div>
+
+    <div id="weaponRow">
+      <span id="weaponName">水枪手枪</span>
+      <span id="weaponKey">1 键切换</span>
+    </div>
+
+    <div id="dashRow">
+      <span class="k">冲刺</span>
+      <span id="dashPill" class="dashPill">就绪</span>
+    </div>
+
+    <div class="hudDiv"></div>
+
+    <div class="row opt"><span class="k">武器等级</span><span class="v" id="lvText">Lv.1</span></div>
+    <div class="row xpRow"><span class="k">升级进度</span><span class="v" id="xpText">0 / 20</span></div>
+    <div class="bar xpBar"><i id="xpFill" style="width:0%"></i></div>
+  </div>
+
+  <!-- 右侧仪表：波次 / 击杀 / 经济 / 计时 -->
+  <div class="panel hudPanel" id="rightPanel">
+    <div class="hudHead">
+      <span class="hudKicker">TELEMETRY</span>
+      <span class="hudSignal"><i></i><i></i><i></i></span>
+    </div>
+
+    <div class="row"><span class="k">波次</span><span class="v vWave" id="waveText">第 1 波</span></div>
+    <div class="row"><span class="k">剩余敌人</span><span class="v" id="waveLeftText">0</span></div>
+    <div class="row"><span class="k">金币</span><span class="v coin" id="coinText">0</span></div>
+    <div class="row"><span class="k">击杀</span><span class="v" id="killText">0</span></div>
+    <div class="row"><span class="k">得分</span><span class="v" id="scoreText">0</span></div>
+    <div class="row opt"><span class="k">存活</span><span class="v" id="timeText">0:00</span></div>
+    <div class="row opt"><span class="k">难度</span><span class="v" id="diffText">普通</span></div>
+    <div class="row opt last"><span class="k">最高分</span><span class="v" id="bestText">0</span></div>
+  </div>
+
+  <div id="ragePill" class="hidden">🔥 狂暴 ×1.6</div>
+
+  <div id="bossBar" class="hidden">
+    <div class="bossTop">
+      <span class="bossKicker">BOSS ENCOUNTER</span>
+      <span class="bossWarn">深海威胁</span>
+    </div>
+    <div class="bossNameRow">
+      <span class="bossMark" aria-hidden="true"></span>
+      <div id="bossName">深海鲨王</div>
+    </div>
+    <div class="bar bossTrack"><i id="bossFill"></i></div>
+  </div>
+
+  <div id="buffs"></div>
+  <div id="gunBar"></div>
+  <div id="pickupHint"></div>
+  <div class="flash" id="flash"></div>
+  <div id="lowhp"></div>
+</div>
+
+<!-- ==================== 波间商店（可点击，独立于 HUD） ==================== -->
+<div id="shop" class="hidden">
+  <div class="shopHead">
+    <div class="shopHeadLine">
+      <span class="shopKicker">INTERMISSION</span>
+      <span class="shopCoin"><span class="coinMark">◈</span><b id="shopCoin">0</b></span>
+    </div>
+    <div class="shopTitle">整备阶段</div>
+    <div class="shopSub">第 <b id="shopWave">1</b> 波已清除 · 下一波 <b id="shopTimer">12s</b></div>
+  </div>
+  <div class="shopBody" id="shopBody"></div>
+  <div class="shopFoot">
+    <button id="shopSkip" class="shopSkipBtn">提前出击 <span class="plus">+3</span></button>
+  </div>
+</div>
+
+<!-- ==================== 成就提示 ==================== -->
+<div id="achToast"></div>
+
+<!-- ==================== 覆盖层 ==================== -->
+<div id="overlay">
+
+  <!-- 开始界面 -->
+  <section id="scrStart" class="card start">
+    <div class="bubbles" aria-hidden="true">
+      <i style="--x:8%;--d:9s;--s:14px;--t:0s"></i>
+      <i style="--x:22%;--d:12s;--s:9px;--t:2s"></i>
+      <i style="--x:37%;--d:8s;--s:20px;--t:4s"></i>
+      <i style="--x:55%;--d:14s;--s:12px;--t:1s"></i>
+      <i style="--x:71%;--d:10s;--s:17px;--t:3.5s"></i>
+      <i style="--x:86%;--d:13s;--s:10px;--t:5s"></i>
+      <i style="--x:94%;--d:11s;--s:15px;--t:2.5s"></i>
+    </div>
+
+    <div class="startGrid">
+      <div class="startMain">
+        <div class="heroStage">
+          <div class="logo">
+            <div class="kicker"><span class="kickerMark"></span>BLUE FISH · 深海火拼</div>
+            <h1>蓝鱼枪战</h1>
+            <p class="sub">DEEP SEA GUNFIGHT</p>
+          </div>
+          <div class="heroArtWrap" aria-hidden="true">
+            <span class="heroRing"></span>
+            <img class="heroArt" src="assets/img/hero-fish.png" alt="" onerror="this.classList.add('gone')">
+            <span class="heroArtCap">SPECIMEN / 01</span>
+          </div>
+        </div>
+
+        <div class="feats">
+          <div class="feat"><b>7</b><span>种枪械</span></div>
+          <div class="feat"><b>3×1</b><span>强化三选一</span></div>
+          <div class="feat"><b>∞</b><span>倒下就复活</span></div>
+          <div class="feat"><b>BOSS</b><span>深海鲨王</span></div>
+        </div>
+
+        <div class="diffPick">
+          <span class="diffLabel">难度 <em>DIFFICULTY</em></span>
+          <div class="pills" id="diffPills">
+            <button class="pill" data-d="easy" data-diff="easy">轻松</button>
+            <button class="pill on" data-d="normal" data-diff="normal">普通</button>
+            <button class="pill" data-d="hard" data-diff="hard">狂暴</button>
+          </div>
+        </div>
+
+        <div class="btns">
+          <button id="btnStart" class="primary cta"><span class="ctaLabel">开始游戏</span><span class="ctaKey">ENTER</span></button>
+          <button id="btnProfile" class="ghost">档案</button>
+          <button id="btnSettingsMenu" class="ghost">设置</button>
+        </div>
+        <div class="tip" id="startTip">最高分 0</div>
+      </div>
+
+      <aside class="startRail">
+        <div class="infoBox">
+          <div class="infoHead">
+            <span class="infoNum">01</span>
+            <h3>玩法</h3>
+            <span class="infoEn">HOW TO PLAY</span>
+          </div>
+          <p>打 <span class="hl">3 枪</span> 干掉一条红鱼。你只有 <span class="hl">20 点生命</span>，倒下后 <em>2.6 秒</em>原地满血复活，武器与强化卡保留。</p>
+          <p>红鱼按 <b>波次</b> 来袭。清空一波进入 <b>12 秒</b>整备阶段：买补给、拿强化；提前出击再得 <b>+3</b> 金币。</p>
+          <p>每击杀 <b>20 条</b>红鱼升一级，从 <b>3 张</b>强化卡里选 1 张。每 <b>5 波</b>，深海鲨王登场。</p>
+        </div>
+
+        <div class="infoBox keysBox">
+          <div class="infoHead">
+            <span class="infoNum">02</span>
+            <h3>操作</h3>
+            <span class="infoEn">CONTROLS</span>
+          </div>
+          <div class="keys">
+            <div><kbd>W A S D</kbd><span>游动</span></div>
+            <div><kbd>鼠标</kbd><span>瞄准</span></div>
+            <div><kbd>左键</kbd><kbd>空格</kbd><span>开火</span></div>
+            <div><kbd>Shift</kbd><kbd>右键</kbd><span>冲刺</span></div>
+            <div><kbd>1-7</kbd><kbd>Q</kbd><kbd>E</kbd><span>换枪</span></div>
+            <div><kbd>P</kbd><kbd>Esc</kbd><span>暂停</span></div>
+          </div>
+        </div>
+
+        <div class="railFoot">
+          <span>LOCAL SAVE</span>
+          <span>SEASON 01</span>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 暂停界面 -->
+  <section id="scrPause" class="card hidden">
+    <div class="scrHead">
+      <div class="kicker"><span class="kickerMark"></span>SYSTEM HALT</div>
+      <h2>已暂停</h2>
+      <p class="sub">深 海 暂 时 安 静 了 下 来</p>
+    </div>
+    <div class="statsGrid" id="pauseStats"></div>
+    <div class="btns">
+      <button id="btnResume" class="primary">继续游戏</button>
+      <button id="btnSettingsPause" class="ghost">设置</button>
+      <button id="btnRestart" class="ghost">重新开始</button>
+      <button id="btnMenu" class="danger">返回主菜单</button>
+    </div>
+    <div class="tip">P / Esc 继续 · R 重新开始</div>
+  </section>
+
+  <!-- 设置界面 -->
+  <section id="scrSettings" class="card hidden">
+    <div class="scrHead">
+      <div class="kicker"><span class="kickerMark"></span>SETTINGS · AUTO SAVE</div>
+      <h2>设置</h2>
+      <p class="sub">调 整 声 音 与 手 感</p>
+    </div>
+
+    <div class="setGroup">
+      <div class="groupHead"><span class="num">01</span><h3>音频</h3><span class="en">AUDIO</span></div>
+      <div class="setRow"><label for="setSfx">音效音量</label><div class="setCtrl"><input type="range" id="setSfx" min="0" max="100" step="5"><span class="val" id="valSfx">80%</span></div></div>
+      <div class="setRow"><label for="setMusic">背景音乐</label><div class="setCtrl"><input type="range" id="setMusic" min="0" max="100" step="5"><span class="val" id="valMusic">50%</span></div></div>
+    </div>
+
+    <div class="setGroup">
+      <div class="groupHead"><span class="num">02</span><h3>画面</h3><span class="en">VISUAL</span></div>
+      <div class="setRow"><label for="setShake">屏幕震动</label><div class="setCtrl"><input type="range" id="setShake" min="0" max="100" step="10"><span class="val" id="valShake">80%</span></div></div>
+      <div class="setRow"><label for="setParticles">粒子效果</label>
+        <div class="setCtrl"><select id="setParticles">
+          <option value="low">低 · 流畅</option>
+          <option value="medium">中</option>
+          <option value="high">高 · 华丽</option>
+        </select></div>
+      </div>
+      <div class="setRow"><label for="setDmg">伤害数字</label><div class="setCtrl"><div class="switch" id="setDmg"><i></i></div></div></div>
+    </div>
+
+    <div class="setGroup">
+      <div class="groupHead"><span class="num">03</span><h3>对局</h3><span class="en">GAME</span></div>
+      <div class="setRow"><label for="setDiff">难度</label>
+        <div class="setCtrl"><select id="setDiff">
+          <option value="easy">轻松</option>
+          <option value="normal">普通</option>
+          <option value="hard">狂暴</option>
+        </select></div>
+      </div>
+    </div>
+
+    <div class="btns">
+      <button id="btnSettingsBack" class="primary">返回</button>
+      <button id="btnWipe" class="danger ghost dangerGhost">清空最高分</button>
+    </div>
+  </section>
+
+  <!-- 升级卡片 -->
+  <section id="scrCards" class="card hidden">
+    <div class="scrHead center">
+      <div class="kicker"><span class="kickerMark"></span>WEAPON EVOLUTION</div>
+      <h2 id="cardTitle">武 器 升 级</h2>
+      <p class="sub" id="cardSub">选择一张强化卡 · 按 1 / 2 / 3 或点击</p>
+    </div>
+    <div class="cardRow" id="cardRow"></div>
+    <div class="tip">卡片效果可以叠加 · 稀有卡（紫）与武器卡（金）更强力</div>
+  </section>
+
+  <!-- 档案 / 成就 -->
+  <section id="scrProfile" class="card hidden">
+    <div class="scrHead">
+      <div class="kicker"><span class="kickerMark"></span>DIVE LOG · PERSISTENT</div>
+      <h2>档案</h2>
+      <p class="sub" id="profileSub">PROFILE · 跨局累计</p>
+    </div>
+
+    <div class="profileStats" id="profileStats"></div>
+
+    <div class="achHeadRow">
+      <div class="groupHead"><span class="num">02</span><h3>成就</h3><span class="en">ACHIEVEMENTS</span></div>
+      <span class="achCount" id="achCount">0 / 12</span>
+    </div>
+    <div class="achGrid" id="achGrid"></div>
+
+    <div class="btns">
+      <button id="btnProfileBack" class="primary">返回</button>
+      <button id="btnProfileWipe" class="danger ghost dangerGhost">清空档案</button>
+    </div>
+  </section>
+
+</div>
+
+<script src="audio.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
