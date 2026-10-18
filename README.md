@@ -105,7 +105,11 @@ app/make-icon.py                    用 3D 主视觉合成 1024 图标
 ```
 
 本机没有 Xcode，所以构建是在 GitHub Actions 的 macOS runner 上做的。
-产物在仓库 `dist/BlueFish-unsigned.ipa`（未签名，约 2.3 MB）。
+产物在仓库 `dist/BlueFish-unsigned.ipa`（未签名，约 2.4 MB），
+最新一版 **2,451,569 B / sha256 `e5daa6284ce699b5857f0427b788d143ea7a63bb0071b124be95c9b7285f9222`**，
+包内已含液态玻璃 UI、自绘图标、启动动画、七把武器图标与手柄支持。
+
+网页版随手可玩：<https://carltian123.github.io/my-ebsite/>
 装到真机需要自己签一次：Sideloadly / 爱思助手 / AltStore 都可以，
 或者用 Xcode 打开工程选真机跑（会自动用你的 Apple ID 签名）。
 
