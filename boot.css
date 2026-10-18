@@ -1,0 +1,270 @@
+/* ===================================================================
+   Tian Studio · 启动动画（两拍）
+   黑场 → ① 工作室标志描线/扫光/字标揭示 → 收拢上移
+        → ② Tian Games Engine v1.0 六边核心描出、字标揭示、版本与进度线
+        → 整体淡出
+   约 3.76s，可点击跳过；prefers-reduced-motion 时直达终点。
+   =================================================================== */
+
+#boot{
+  position:fixed;inset:0;z-index:200;
+  display:flex;align-items:center;justify-content:center;
+  background:#04090f;
+  color:#eef6fb;
+  background-image:radial-gradient(120% 90% at 50% 42%, #0b1a24 0%, #050c13 46%, #03070b 100%);
+  transition:opacity .56s cubic-bezier(.4,0,.2,1);
+  -webkit-tap-highlight-color:transparent;
+  overscroll-behavior:none;
+}
+#boot.out{opacity:0;pointer-events:none}
+body.booted #boot{display:none}
+
+/* 两拍共用一个居中舞台 */
+.bootStack{
+  position:relative;
+  display:grid;place-items:center;
+  width:min(92vw, 520px);height:min(70vh, 420px);
+}
+
+/* ============ ① 工作室 ============ */
+.bootStage{
+  position:absolute;left:50%;top:50%;
+  display:flex;flex-direction:column;align-items:center;
+  gap:18px;
+  transform:translate(-50%,-50%);
+  transform-origin:50% 50%;
+}
+body.booting .bootStage{
+  animation:stageCondense 600ms cubic-bezier(.4,0,.24,1) 1760ms forwards;
+}
+
+.bootMark{
+  width:112px;height:112px;display:block;overflow:visible;
+  filter:drop-shadow(0 10px 26px rgba(0,0,0,.55));
+}
+.bootMark .ring,
+.bootMark .barH,
+.bootMark .stem,
+.bootMark .wave,
+.bootMark .ping{
+  stroke:#f2fbff;fill:none;
+  stroke-linecap:round;
+  vector-effect:non-scaling-stroke;
+}
+.bootMark .ring{stroke-width:1.5;opacity:.5;stroke-dasharray:264;stroke-dashoffset:264}
+.bootMark .barH{stroke-width:2.6;stroke-dasharray:52;stroke-dashoffset:52}
+.bootMark .stem{stroke-width:2.6;stroke-dasharray:46;stroke-dashoffset:46}
+.bootMark .wave{stroke-width:1.2;opacity:0;stroke:#bdeeff}
+.bootMark .ripple{stroke:#8fe6ff;stroke-width:1;fill:none;opacity:0;transform-origin:60px 58px}
+.bootMark .ping{stroke-width:1.4;opacity:0;stroke:#8fe6ff}
+
+body.booting .bootMark .ring{animation:draw 1.15s cubic-bezier(.5,0,.2,1) .08s forwards}
+body.booting .bootMark .stem{animation:draw .62s cubic-bezier(.4,0,.2,1) .42s forwards}
+body.booting .bootMark .barH{animation:draw .55s cubic-bezier(.4,0,.2,1) .62s forwards}
+body.booting .bootMark .wave{animation:waveIn .9s cubic-bezier(.4,0,.2,1) .95s forwards}
+body.booting .bootMark .ping{animation:pingIn .7s ease-out 1.15s forwards}
+body.booting .bootMark .ripple{animation:rippleOut 1.4s cubic-bezier(.2,.6,.3,1) 1.2s forwards}
+
+.bootMark .sheen{
+  opacity:0;
+  transform:translateX(-140%) skewX(-18deg);
+  transform-origin:center;
+}
+body.booting .bootMark .sheen{animation:sheen 1.05s cubic-bezier(.4,0,.2,1) 1.02s forwards}
+
+.bootWord{
+  display:flex;align-items:baseline;gap:.42em;
+  font-family:Inter, system-ui, sans-serif;
+  font-size:16px;font-weight:500;
+  letter-spacing:.46em;
+  text-transform:uppercase;
+  color:#f2fbff;
+  padding-left:.34em;
+  opacity:0;
+}
+.bootWord span{
+  display:inline-block;
+  clip-path:inset(0 0 0 100%);
+  opacity:0;
+}
+body.booting .bootWord{animation:wordIn 1.1s cubic-bezier(.22,1,.36,1) .92s forwards}
+body.booting .bootWord span:nth-child(1){animation:wipe .6s cubic-bezier(.4,0,.2,1) .95s forwards}
+body.booting .bootWord span:nth-child(2){animation:wipe .6s cubic-bezier(.4,0,.2,1) 1.06s forwards}
+.bootWord .thin{color:rgba(226,242,251,.45);font-weight:400}
+
+/* ============ ② 引擎 ============ */
+.bootEngineLock{
+  position:absolute;left:50%;top:50%;
+  display:flex;flex-direction:column;align-items:center;gap:14px;
+  opacity:0;
+  transform:translate(-50%,-50%) translateY(46px) scale(.985);
+}
+body.booting .bootEngineLock{
+  animation:engLockIn 720ms cubic-bezier(.22,1,.36,1) 2050ms forwards;
+}
+
+.engMark{
+  width:84px;height:84px;display:block;overflow:visible;
+  filter:drop-shadow(0 8px 22px rgba(0,0,0,.5));
+}
+.engMark .hex,
+.engMark .hexIn{
+  fill:none;stroke:#e9f8ff;stroke-linecap:round;stroke-linejoin:round;
+  vector-effect:non-scaling-stroke;
+}
+.engMark .hex{stroke-width:1.4;opacity:.85;stroke-dasharray:230;stroke-dashoffset:230}
+.engMark .hexIn{stroke-width:1;opacity:.32;stroke-dasharray:165;stroke-dashoffset:165}
+.engMark .play{fill:#dff6ff;opacity:0;transform-origin:50px 48px}
+.engMark .ticks path{stroke:rgba(214,244,255,.55);stroke-width:1.1;stroke-linecap:round;opacity:0}
+.engMark .orb{fill:#8fe6ff;opacity:0}
+
+body.booting .engMark .hex{animation:draw 760ms cubic-bezier(.5,0,.2,1) 2150ms forwards}
+body.booting .engMark .hexIn{animation:draw 700ms cubic-bezier(.5,0,.2,1) 2280ms forwards}
+body.booting .engMark .play{animation:playPop 460ms cubic-bezier(.34,1.4,.5,1) 2380ms forwards}
+body.booting .engMark .ticks path{animation:fadeIn .5s ease-out 2500ms forwards}
+body.booting .engMark .orb{animation:orbIn 900ms ease-out 2460ms forwards}
+
+.engWord{
+  display:flex;align-items:baseline;gap:.5em;
+  font-family:Inter, system-ui, sans-serif;
+  font-size:12.5px;font-weight:500;
+  letter-spacing:.34em;text-transform:uppercase;
+  color:rgba(240,251,255,.92);
+  padding-left:.34em;
+}
+.engWord .w1, .engWord .w2{
+  display:inline-block;
+  clip-path:inset(0 0 0 100%);
+  opacity:0;
+}
+.engWord .w2{color:rgba(143,230,255,.78)}
+body.booting .engWord{animation:fadeIn .8s ease-out 2380ms forwards;opacity:0}
+body.booting .engWord .w1{animation:wipe .58s cubic-bezier(.4,0,.2,1) 2400ms forwards}
+body.booting .engWord .w2{animation:wipe .58s cubic-bezier(.4,0,.2,1) 2520ms forwards}
+
+.engMeta{
+  display:flex;align-items:center;gap:12px;
+  opacity:0;
+  transform:translateY(5px);
+}
+body.booting .engMeta{animation:engMetaIn .6s cubic-bezier(.22,1,.36,1) 2860ms forwards}
+.engMeta .ver{
+  font-family:Inter, system-ui, sans-serif;
+  font-size:9.5px;font-weight:600;letter-spacing:.18em;
+  color:#8fe6ff;
+  padding:3px 7px;border-radius:6px;
+  border:1px solid rgba(143,230,255,.34);
+  background:rgba(143,230,255,.10);
+}
+.engBar{
+  position:relative;display:block;width:104px;height:1px;
+  background:rgba(226,242,251,.14);overflow:hidden;border-radius:2px;
+}
+.engBar i{
+  position:absolute;inset:0;
+  background:linear-gradient(90deg, rgba(143,230,255,0) 0%, #8fe6ff 45%, rgba(143,230,255,0) 100%);
+  transform:translateX(-100%);
+}
+body.booting .engBar i{animation:barSweep 1.5s cubic-bezier(.4,0,.2,1) 2980ms forwards}
+
+/* 跳过提示 */
+.bootSkip{
+  position:fixed;right:max(20px, env(safe-area-inset-right));
+  bottom:max(22px, env(safe-area-inset-bottom));
+  text-align:right;
+  font-family:Inter, system-ui, sans-serif;
+  font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+  color:rgba(226,242,251,.22);
+  opacity:0;transition:opacity .4s ease;
+}
+body.booting .bootSkip{opacity:1;transition-delay:1.5s}
+
+/* 退场 */
+#boot.out .bootStage{transform:translate(-50%,-50%) translateY(-74px) scale(.38);opacity:0;transition:transform .4s ease,opacity .34s ease}
+#boot.out .bootEngineLock{transform:translate(-50%,-50%) translateY(18px) scale(.99);opacity:0;transition:transform .4s ease,opacity .34s ease}
+#boot.out .bootSkip{opacity:0;transition:opacity .28s ease}
+
+/* ---------- 关键帧 ---------- */
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes wipe{to{clip-path:inset(0 0 0 0);opacity:1}}
+@keyframes fadeIn{to{opacity:1}}
+@keyframes wordIn{
+  0%{opacity:0;letter-spacing:.62em}
+  100%{opacity:1;letter-spacing:.46em}
+}
+@keyframes rippleOut{
+  0%{opacity:.55;transform:scale(1)}
+  70%{opacity:.10}
+  100%{opacity:0;transform:scale(1.72)}
+}
+@keyframes waveIn{
+  0%{opacity:0;transform:translateY(-3px)}
+  60%{opacity:.85}
+  100%{opacity:.55;transform:translateY(0)}
+}
+@keyframes pingIn{
+  0%{opacity:0;transform:scale(.6);transform-origin:60px 88px}
+  55%{opacity:1}
+  100%{opacity:.9;transform:scale(1);transform-origin:60px 88px}
+}
+@keyframes sheen{
+  0%{opacity:0;transform:translateX(-140%) skewX(-18deg)}
+  22%{opacity:.55}
+  100%{opacity:0;transform:translateX(140%) skewX(-18deg)}
+}
+/* 第一拍收拢：向上收、缩小、变暗，把舞台让给引擎 */
+@keyframes stageCondense{
+  0%{transform:translate(-50%,-50%) translateY(0) scale(1);opacity:1}
+  100%{transform:translate(-50%,-50%) translateY(-104px) scale(.40);opacity:.26}
+}
+@keyframes engLockIn{
+  0%{opacity:0;transform:translate(-50%,-50%) translateY(46px) scale(.985)}
+  100%{opacity:1;transform:translate(-50%,-50%) translateY(26px) scale(1)}
+}
+@keyframes playPop{
+  0%{opacity:0;transform:scale(.55)}
+  60%{opacity:1;transform:scale(1.06)}
+  100%{opacity:1;transform:scale(1)}
+}
+@keyframes orbIn{
+  0%{opacity:0}
+  30%{opacity:1}
+  100%{opacity:.7}
+}
+@keyframes engMetaIn{
+  0%{opacity:0;transform:translateY(5px)}
+  100%{opacity:1;transform:translateY(0)}
+}
+@keyframes barSweep{
+  0%{transform:translateX(-100%)}
+  100%{transform:translateX(100%)}
+}
+
+/* 无障碍：不要动画的直接看结果 */
+@media (prefers-reduced-motion: reduce){
+  body.booting .bootMark .ring,
+  body.booting .bootMark .stem,
+  body.booting .bootMark .barH,
+  body.booting .engMark .hex,
+  body.booting .engMark .hexIn{animation:none;stroke-dashoffset:0}
+  body.booting .bootMark .wave,
+  body.booting .bootMark .ping,
+  body.booting .bootWord,
+  body.booting .bootWord span,
+  body.booting .engMark .play,
+  body.booting .engMark .ticks path,
+  body.booting .engMark .orb,
+  body.booting .engWord,
+  body.booting .engWord span,
+  body.booting .engMeta,
+  body.booting .bootSkip{animation:none;opacity:1;clip-path:none}
+  body.booting .bootStage{animation:none;transform:translate(-50%,-50%) translateY(-104px) scale(.40);opacity:.26}
+  body.booting .bootEngineLock{animation:none;opacity:1;transform:translate(-50%,-50%) translateY(26px)}
+}
+
+@media (min-width: 900px){
+  .bootMark{width:132px;height:132px}
+  .bootWord{font-size:18px}
+  .engMark{width:96px;height:96px}
+  .engWord{font-size:13.5px}
+}
