@@ -15,6 +15,7 @@ const pick = a => a[Math.floor(Math.random() * a.length)];
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 const dist2 = (ax, ay, bx, by) => (ax - bx) * (ax - bx) + (ay - by) * (ay - by);
+function angDelta(a, b){ return ((b - a + Math.PI) % TAU + TAU) % TAU - Math.PI; }
 function angleLerp(a, b, t){
   let d = ((b - a + Math.PI) % TAU + TAU) % TAU - Math.PI;
   return a + d * t;
@@ -34,7 +35,8 @@ function fmtTime(s){
 /* ============================== 设置 ============================== */
 const SET_KEY = 'fishGunfightSetV2';
 const BEST_KEY = 'fishGunfightBestV2';
-const DEFAULTS = { sfx:0.85, music:0.45, shake:0.8, particles:'high', dmgNumbers:true, difficulty:'normal' };
+const DEFAULTS = { sfx:0.85, music:0.45, shake:0.8, particles:'high', dmgNumbers:true, difficulty:'normal',
+                   haptics:true, tilt:false, shakeSkill:true, aimAssist:true };
 let SET = Object.assign({}, DEFAULTS);
 try { Object.assign(SET, JSON.parse(localStorage.getItem(SET_KEY) || '{}')); } catch (e) {}
 function saveSet(){ try { localStorage.setItem(SET_KEY, JSON.stringify(SET)); } catch(e){} }
@@ -64,6 +66,7 @@ function resize(rebuild){
   cvs.height = Math.floor(H * DPR);
   // 只是改渲染分辨率时不用重建环境层（尺寸按 CSS px 算，没变）
   if (rebuild !== false && typeof buildEnv === 'function' && env) buildEnv();
+  if (typeof layoutPulse === 'function') layoutPulse();
 }
 window.addEventListener('resize', resize);
 
@@ -337,7 +340,8 @@ function onTouchStart(e){
   for (const t of e.changedTouches){
     const r = cvs.getBoundingClientRect();
     const cx = t.clientX - r.left, cy = t.clientY - r.top;
-    if (!stick.active && cx < W * 0.46){
+    if (pulseHit(cx, cy)){ tryPulseFromTouch(); handled = true; }
+    else if (!stick.active && cx < W * 0.46){
       stickStart(t.identifier, cx, cy);
       handled = true;
     } else if (aimId === null){
@@ -375,6 +379,84 @@ cvs.addEventListener('touchstart', onTouchStart, { passive: false });
 cvs.addEventListener('touchmove', onTouchMove, { passive: false });
 cvs.addEventListener('touchend', onTouchEnd, { passive: false });
 cvs.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+/* ---------------- 移动端专属：触感 / 体感微调 / 摇一摇脉冲 / 屏幕常亮 ---------------- */
+const HAPTIC_NATIVE = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.haptic);
+let hapticLast = 0;
+function haptic(kind){
+  if (!IS_TOUCH || !SET.haptics) return;
+  const now = performance.now();
+  if (now - hapticLast < (kind === 'tick' ? 66 : 26)) return;
+  hapticLast = now;
+  if (HAPTIC_NATIVE){
+    try { window.webkit.messageHandlers.haptic.postMessage(kind === 'heavy' ? 1 : kind === 'medium' ? 2 : 0); return; } catch (e) {}
+  }
+  if (navigator.vibrate){
+    try { navigator.vibrate(kind === 'heavy' ? 42 : kind === 'medium' ? 20 : 9); } catch (e) {}
+  }
+}
+
+// 体感微调：以打开开关那一刻的手持姿态为基准，倾斜手机给准星一个偏移
+const tilt = { on: false, ok: false, x: 0, y: 0, g0: null, b0: null };
+function resetTiltBase(){ tilt.g0 = null; tilt.b0 = null; tilt.x = 0; tilt.y = 0; }
+window.addEventListener('deviceorientation', e => {
+  if (!IS_TOUCH || e.gamma == null || e.beta == null) return;
+  tilt.ok = true;
+  if (tilt.g0 === null || tilt.b0 === null){ tilt.g0 = e.gamma; tilt.b0 = e.beta; return; }
+  // 横屏手持：gamma 的左右倾 + beta 的前后倾，都只取相对基准的偏移
+  tilt.x = clamp((e.gamma - tilt.g0) / 26, -1, 1);
+  tilt.y = clamp((e.beta - tilt.b0) / 26, -1, 1);
+}, true);
+
+/* 深海脉冲：清屏技能，只有触屏能用（摇一摇或点右下角的脉冲钮） */
+const pulse = { cd: 0, cdMax: 18, rad: 250 };
+function pulseReady(){ return pulse.cd <= 0 && state.mode === 'playing' && player && player.alive; }
+function triggerPulse(){
+  if (!pulseReady()) return false;
+  pulse.cd = pulse.cdMax;
+  ring(player.x, player.y, 'rgba(126,240,200,0.85)', 20, 300, 0.65);
+  shockwave(player.x, player.y, 20, pulse.rad * 1.7, 0.6, 'rgba(126,240,200,0.55)', 6);
+  shockwave(player.x, player.y, 8, pulse.rad * 1.1, 0.4, 'rgba(220,255,245,0.8)', 2.5);
+  ripple(player.x, player.y, 1.2);
+  burst(player.x, player.y, '#a9f5da', 26, 320, 4);
+  shakeIt(11); haptic('heavy'); Sound.play('boom');
+  floatText(player.x, player.y - 52, '深 海 脉 冲', '#7ef0c8', 18);
+  const hit = [];
+  for (const e of enemies){
+    const dx = e.x - player.x, dy = e.y - player.y;
+    if (Math.hypot(dx, dy) > pulse.rad) continue;
+    const a = Math.atan2(dy, dx);
+    e.vx = (e.vx || 0) + Math.cos(a) * 260;
+    e.vy = (e.vy || 0) + Math.sin(a) * 260;
+    applyDamage(e, e.type === 'boss' ? 8 : 6, { dir: a });
+    hit.push(e);
+  }
+  if (hit.length >= 3) floatText(player.x, player.y - 76, hit.length + ' 连击', '#ffd166', 15);
+  return true;
+}
+let shakePrev = 0, shakeT = 0;
+window.addEventListener('devicemotion', e => {
+  if (!IS_TOUCH || !SET.shakeSkill || state.mode !== 'playing') return;
+  const a = e.accelerationIncludingGravity || e.acceleration;
+  if (!a) return;
+  const mag = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+  shakePrev = shakePrev * 0.7 + mag * 0.3;
+  const now = performance.now();
+  if (now - shakeT > 1100 && Math.abs(mag - shakePrev) > 13){ shakeT = now; triggerPulse(); }
+}, true);
+
+// 屏幕常亮：游戏中不要让手机自动锁屏
+let wakeLock = null;
+async function keepAwake(){
+  if (!IS_TOUCH || !('wakeLock' in navigator) || wakeLock || document.hidden) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden){ keepAwake(); if (state.mode === 'playing') { try { Sound.resume(); } catch (e) {} } }
+});
 
 /* ============================== 枪械 ============================== */
 const GUN_ORDER = ['pistol','smg','shotgun','sniper','laser','launcher','trident'];
@@ -1152,6 +1234,7 @@ function currentWeaponKey(){ return GUN_ORDER[player.gunIndex] || 'pistol'; }
 function currentWeapon(){ return WEAPONS[currentWeaponKey()]; }
 
 function fireWeapon(dt){
+  haptic('tick');
   const w = currentWeapon();
   const s = player.stats;
   const interval = w.interval / s.fireRate;
@@ -1261,6 +1344,7 @@ function applyDamage(e, dmg, opt){
 }
 
 function killEnemy(e, crit){
+  haptic(e.type === 'boss' ? 'heavy' : 'light');
   const idx = enemies.indexOf(e);
   if (idx < 0) return;
   enemies.splice(idx, 1);
@@ -1350,6 +1434,7 @@ function explode(x, y, radius, dmg, color){
 }
 
 function damagePlayer(dmg, srcX, srcY){
+  haptic('heavy');
   if (!player.alive || player.invuln > 0) return;
   const s = player.stats;
   if (player.shield >= 1){
@@ -1443,6 +1528,7 @@ function collectPickup(p){
 function tryDash(){
   if (!player || !player.alive || state.mode !== 'playing') return false;
   if (player.dashCd > 0) return false;
+  haptic('medium');
   let ax = 0, ay = 0;
   if (keys['KeyA'] || keys['ArrowLeft'])  ax -= 1;
   if (keys['KeyD'] || keys['ArrowRight']) ax += 1;
@@ -1539,8 +1625,23 @@ function updatePlayer(dt){
   player.speedNow = sp;
 
   // ---- 朝向：身体跟随游动方向，枪口跟随鼠标 ----
-  const want = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+  const ta = (tilt.on && tilt.ok) ? { x: tilt.x * 58, y: tilt.y * 58 } : { x: 0, y: 0 };
+  const want = Math.atan2(mouse.y + ta.y - player.y, mouse.x + ta.x - player.x);
   player.angle = angleLerp(player.angle, want, Math.min(1, 26 * dt));
+  // 触屏：小手一按就有 0.26 rad 的吸附，手指不用摆到像素级
+  if (IS_TOUCH && SET.aimAssist && mouse.down && enemies.length){
+    let best = null, bestErr = 0.26;
+    for (const e of enemies){
+      const dx = e.x - player.x, dy = e.y - player.y;
+      if (Math.hypot(dx, dy) > 470) continue;
+      const err = Math.abs(angDelta(Math.atan2(dy, dx), player.angle));
+      if (err < bestErr){ bestErr = err; best = e; }
+    }
+    if (best){
+      const a = Math.atan2(best.y - player.y, best.x - player.x);
+      player.angle = angleLerp(player.angle, a, 0.55);
+    }
+  }
   if (sp > 34){
     // 游动时身体顺着水流方向
     player.body = angleLerp(player.body, Math.atan2(player.vy, player.vx), Math.min(1, 9 * dt));
@@ -2023,6 +2124,7 @@ function updateAmbient(dt){
 
 /* ============================== 主更新 ============================== */
 function update(dt){
+  if (pulse.cd > 0) pulse.cd = Math.max(0, pulse.cd - dt);
   updateAmbient(dt);
   if (state.mode !== 'playing') return;
 
@@ -3078,6 +3180,60 @@ function drawSniperSights(){
 }
 
 /* 触屏摇杆：底盘 + 摇柄，跟着手指的原点走 */
+const PULSE_BTN = { x: 0, y: 0, r: 30 };
+function layoutPulse(){
+  // 和冲刺钮同一高度、排在它左边，拇指自然够得到，也不压住右上角的遥测面板
+  PULSE_BTN.x = W - 150;
+  PULSE_BTN.y = H - 150;
+}
+function pulseHit(cx, cy){
+  return IS_TOUCH && state.mode === 'playing' &&
+         Math.hypot(cx - PULSE_BTN.x, cy - PULSE_BTN.y) < PULSE_BTN.r * 1.5;
+}
+function tryPulseFromTouch(){
+  if (pulseReady()){ triggerPulse(); return; }
+  haptic('tick');
+  floatText(PULSE_BTN.x - 30, PULSE_BTN.y - 6, '冷却中 ' + Math.ceil(pulse.cd) + 's', '#8ba6b9', 12);
+}
+function drawPulseBtn(){
+  if (!IS_TOUCH || !player) return;
+  const { x, y, r } = PULSE_BTN;
+  const ready = pulse.cd <= 0;
+  const k = ready ? 1 : 1 - pulse.cd / pulse.cdMax;
+  ctx.save();
+  ctx.globalAlpha = ready ? 1 : 0.72;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
+  ctx.fillStyle = ready ? 'rgba(6,32,30,0.62)' : 'rgba(8,18,26,0.62)';
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = ready ? 'rgba(126,240,200,0.85)' : 'rgba(120,150,170,0.42)';
+  ctx.stroke();
+  // 冷却进度环
+  if (!ready){
+    ctx.beginPath();
+    ctx.arc(x, y, r - 4, -Math.PI / 2, -Math.PI / 2 + TAU * k);
+    ctx.strokeStyle = 'rgba(126,240,200,0.75)'; ctx.lineWidth = 3; ctx.stroke();
+  }
+  // 图标：三道扩散的弧
+  ctx.strokeStyle = ready ? 'rgba(215,255,244,0.95)' : 'rgba(150,180,195,0.6)';
+  ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++){
+    const rr = 6 + i * 6;
+    if (rr > r - 6) break;
+    ctx.beginPath();
+    ctx.arc(x, y, rr, -Math.PI * 0.72, -Math.PI * 0.28);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, rr, Math.PI * 0.28, Math.PI * 0.72);
+    ctx.stroke();
+  }
+  if (ready){
+    const pu = 0.5 + 0.5 * Math.sin(performance.now() / 420);
+    drawGlow(x, y, r * (2.6 + pu * 0.5), '#7ef0c8', 0.10 + pu * 0.06);
+  }
+  ctx.restore();
+}
+
 function drawStick(){
   if (!stick.active) return;
   const ox = stick.ox, oy = stick.oy;
@@ -3275,7 +3431,19 @@ function render(){
     }
   }
   // 触屏摇杆画在最上层
-  if (IS_TOUCH && state.mode === 'playing') drawStick();
+  if (IS_TOUCH && state.mode === 'playing'){
+    drawStick();
+    drawPulseBtn();
+    if (tilt.on && tilt.ok && mouse.down){
+      ctx.save(); ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = 'rgba(126,240,200,0.9)'; ctx.lineWidth = 1.4;
+      const tx = mouse.x + tilt.x * 58, ty = mouse.y + tilt.y * 58;
+      ctx.beginPath(); ctx.arc(tx, ty, 7, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.arc(tx, ty, 1.6, 0, TAU);
+      ctx.fillStyle = 'rgba(220,255,245,0.95)'; ctx.fill();
+      ctx.restore();
+    }
+  }
 }
 
 /* ============================== HUD ============================== */
@@ -3635,6 +3803,7 @@ function fillPauseStats(){
     '<div><span>伤害加成</span><b>×' + s.damage.toFixed(2) + '</b></div>';
 }
 function startRun(){
+  keepAwake();
   resetWorld();
   setMode('playing');
   Sound.resume(); Sound.startMusic();
@@ -3671,6 +3840,11 @@ function syncSettingsUI(){
   $('setParticles').value = SET.particles;
   $('setDiff').value = SET.difficulty;
   $('setDmg').classList.toggle('on', SET.dmgNumbers);
+  $('setHaptic').classList.toggle('on', !!SET.haptics);
+  $('setTilt').classList.toggle('on', !!SET.tilt);
+  $('setShakeSkill').classList.toggle('on', !!SET.shakeSkill);
+  $('setAimAssist').classList.toggle('on', !!SET.aimAssist);
+  tilt.on = !!SET.tilt;
   syncDiffPills();
 }
 
@@ -3680,6 +3854,18 @@ $('setMusic').addEventListener('input', e => { SET.music = e.target.value / 100;
 $('setShake').addEventListener('input', e => { SET.shake = e.target.value / 100; saveSet(); syncSettingsUI(); });
 $('setParticles').addEventListener('change', e => { SET.particles = e.target.value; saveSet(); });
 $('setDiff').addEventListener('change', e => { SET.difficulty = e.target.value; saveSet(); syncHUD(); syncDiffPills(); });
+$('setHaptic').addEventListener('click', () => {
+  SET.haptics = !SET.haptics; saveSet(); syncSettingsUI();
+  if (SET.haptics){ haptic('heavy'); setTimeout(() => haptic('medium'), 120); }
+});
+$('setTilt').addEventListener('click', () => {
+  SET.tilt = !SET.tilt; saveSet(); syncSettingsUI();
+  resetTiltBase();           // 以此刻的持机姿态为新基准
+  haptic('medium');
+  if (SET.tilt && !tilt.ok) showFlash('这台设备没有陀螺仪，体感不可用', '#ffb14d');
+});
+$('setShakeSkill').addEventListener('click', () => { SET.shakeSkill = !SET.shakeSkill; saveSet(); syncSettingsUI(); haptic('tick'); });
+$('setAimAssist').addEventListener('click', () => { SET.aimAssist = !SET.aimAssist; saveSet(); syncSettingsUI(); haptic('tick'); });
 $('setDmg').addEventListener('click', () => { SET.dmgNumbers = !SET.dmgNumbers; saveSet(); syncSettingsUI(); });
 $('btnWipe').addEventListener('click', () => {
   best = 0; try { localStorage.removeItem(BEST_KEY); } catch(e){}
@@ -3847,6 +4033,7 @@ window.__fishGame = {
     saveProfile();
   },
   get enemyList(){ return enemies.map(e => ({ id:e.id, x:e.x, y:e.y, hp:e.hp, maxHp:e.maxHp, r:e.r, type:e.type })); },
+  get enemyLive(){ return enemies.map(e => ({ t:e.type, hp:e.hp, x:Math.round(e.x), y:Math.round(e.y) })); },
   CFG: { PLAYER_MAX_HP:20, ENEMY_HP:3, KILLS_PER_LEVEL:20, BOSS_WAVE_EVERY:5 },
   WEAPONS, CARDS, GUN_ORDER, SHOP_ITEMS,
   buyShop(i){ return buyShop(i); },
@@ -3877,6 +4064,12 @@ window.__fishGame = {
     syncHUD();
   },
   heal(n){ player.hp = Math.min(player.stats.maxHp, player.hp + (n || 99)); syncHUD(); },
+  triggerPulse(){ return triggerPulse(); },
+  get pulse(){ return { cd: pulse.cd, max: pulse.cdMax, ready: pulseReady() }; },
+  get pulseBtn(){ return { x: PULSE_BTN.x, y: PULSE_BTN.y, r: PULSE_BTN.r }; },
+  setPulseCd(v){ pulse.cd = v; },
+  get tilt(){ return { on: tilt.on, ok: tilt.ok, x: tilt.x, y: tilt.y }; },
+  get haptics(){ return { native: HAPTIC_NATIVE, on: !!SET.haptics }; },
   setCombo(n){ state.combo = Math.max(0, n | 0); state.comboT = state.combo > 0 ? 2.4 : 0; state.bestCombo = Math.max(state.bestCombo, state.combo); },
   invuln(sec){ player.invuln = Math.max(player.invuln, sec || 5); },
   spawn(n, type){ const out = []; for (let i = 0; i < (n || 1); i++) out.push(spawnEnemy(type || null, true).type); return out; },

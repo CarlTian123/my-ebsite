@@ -1886,6 +1886,17 @@ body.touch .touchKeys{display:grid;}
 
 /* ---------- 手机横屏：把 HUD 压扁，给战场留高度 ---------- */
 @media (max-height:540px) and (orientation:landscape){
+  /* 卡片在矮屏上必须能滚：设置页内容比视口高，overflow:hidden 会把"返回"按钮裁掉 */
+  .card{
+    max-height:calc(100dvh - 16px);
+    overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+    padding:20px 22px 18px;
+  }
+  #scrSettings .setGroup{margin-top:9px;}
+  #scrSettings .setRow{padding:7px 0;}
+  #scrSettings .setRow.sub{padding-bottom:4px;}
+  #scrSettings .setRow.sub p{font-size:10px;}
+  #scrSettings .btns{margin-top:10px;}
   .hudPanel{top:6px;padding:8px 10px 9px;border-radius:12px;}
   #leftPanel{width:168px;left:6px;}
   #rightPanel{width:112px;right:6px;}
@@ -2049,3 +2060,13 @@ body.touch .ctaKey{display:none;}
 
 /* Boss 血条会占住顶部中间，成就提示往下让一让 */
 body.bossOn #achToast{top:104px;}
+
+
+/* ---------- 移动端设置区（桌面隐藏） ---------- */
+#setTouch{display:none;}
+body.touch #setTouch{display:block;}
+#setTouch .setRow.sub{display:block;padding:2px 0 10px;}
+#setTouch .setRow.sub p{
+  margin:0;font-size:11px;line-height:1.55;color:rgba(150,180,200,.72);
+  letter-spacing:.02em;
+}
