@@ -1,0 +1,47 @@
+name: build-ipa
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "app/**"
+      - ".github/workflows/build-ipa.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  ipa:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build unsigned IPA
+        run: |
+          set -euo pipefail
+          ./app/build-ipa.sh
+
+      - name: Show result
+        run: ls -lh app/dist/ && unzip -l app/dist/BlueFish-unsigned.ipa | head -20
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlueFish-ipa
+          path: app/dist/BlueFish-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Commit IPA back to the repo
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p dist
+          cp app/dist/BlueFish-unsigned.ipa dist/BlueFish-unsigned.ipa
+          ls -lh dist/
+          git add -f dist/BlueFish-unsigned.ipa
+          git commit -m "chore: 构建 iOS 未签名 ipa（GitHub Actions 自动生成）" || echo "nothing to commit"
+          git push
