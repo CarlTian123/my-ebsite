@@ -22,7 +22,7 @@ jobs:
       - name: Build unsigned IPA
         run: |
           set -euo pipefail
-          ./app/build-ipa.sh
+          bash ./app/build-ipa.sh
 
       - name: Show result
         run: ls -lh app/dist/ && unzip -l app/dist/BlueFish-unsigned.ipa | head -20
