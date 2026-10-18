@@ -46,7 +46,8 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
   CODE_SIGN_IDENTITY="" \
-  build | tail -20
+  -destination "generic/platform=iOS" \
+  build 2>&1 | tail -60
 
 APP_PATH="$HERE/build/Build/Products/Release-iphoneos"
 echo "==> 4/5 打包 ipa"
