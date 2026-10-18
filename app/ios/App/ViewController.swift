@@ -31,6 +31,7 @@ final class ViewController: UIViewController, WKScriptMessageHandler {
         web.allowsBackForwardNavigationGestures = false
         web.translatesAutoresizingMaskIntoConstraints = false
         if #available(iOS 16.4, *) { web.isInspectable = true }
+        lightGen.prepare(); mediumGen.prepare(); heavyGen.prepare()
 
         view.backgroundColor = web.backgroundColor
         view.addSubview(web)
@@ -51,14 +52,27 @@ final class ViewController: UIViewController, WKScriptMessageHandler {
         }
     }
 
-    // 网页里可以 window.webkit.messageHandlers.haptic.postMessage(0) 触发震动
+    // 网页里可以 window.webkit.messageHandlers.haptic.postMessage(n) 触发震动
+    //   0 = 轻（开火/命中，压低强度，避免连发时变成嗡嗡声）
+    //   1 = 重（击杀 Boss / 受伤）
+    //   2 = 中（冲刺 / 深海脉冲就绪）
+    private lazy var lightGen = UIImpactFeedbackGenerator(style: .light)
+    private lazy var mediumGen = UIImpactFeedbackGenerator(style: .medium)
+    private lazy var heavyGen = UIImpactFeedbackGenerator(style: .heavy)
+
     func userContentController(_ uc: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "haptic" else { return }
         let style = (message.body as? Int) ?? 0
-        if style == 1 {
-            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-        } else {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        switch style {
+        case 1:
+            heavyGen.impactOccurred()
+            heavyGen.prepare()
+        case 2:
+            mediumGen.impactOccurred()
+            mediumGen.prepare()
+        default:
+            lightGen.impactOccurred(intensity: 0.55)
+            lightGen.prepare()
         }
     }
 }
