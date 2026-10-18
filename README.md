@@ -73,6 +73,26 @@
 - **屏幕常亮** —— 进游戏时申请 `Wake Lock`，手机上不会因为发呆就锁屏；切回前台自动重取。
 - **横屏告知 + 安全区适配** —— 竖屏显示旋转提示；刘海/灵动岛区域用 `env(safe-area-inset-*)` 让开。
 
+## 打包成 iOS App
+
+`app/` 下是 iOS 壳（Swift + WKWebView），把网页整包塞进 App，横屏全屏、禁滚动回弹、
+首屏常亮、震动走原生 Taptic Engine：
+
+```
+app/ios/project.yml                 XcodeGen 工程描述（PRODUCT_NAME: BlueFish）
+app/ios/App/AppDelegate.swift       @main，强制横屏，isIdleTimerDisabled
+app/ios/App/ViewController.swift    全屏 WKWebView + haptic 消息桥
+app/ios/Support/Info.plist          显示名「蓝鱼枪战」、仅横屏、隐藏状态栏
+app/build-ipa.sh                    拷网页资源 → xcodegen → xcodebuild → zip 成 ipa
+app/make-icon.py                    用 3D 主视觉合成 1024 图标
+.github/workflows/build-ipa.yml     macOS runner 上自动构建，产物回到 dist/
+```
+
+本机没有 Xcode，所以构建是在 GitHub Actions 的 macOS runner 上做的。
+产物在仓库 `dist/BlueFish-unsigned.ipa`（未签名，约 2.3 MB）。
+装到真机需要自己签一次：Sideloadly / 爱思助手 / AltStore 都可以，
+或者用 Xcode 打开工程选真机跑（会自动用你的 Apple ID 签名）。
+
 ## 规则
 
 - 打 **3 枪**干掉一条红鱼（手枪 1 点伤害 × 红鱼 3 点血）。
