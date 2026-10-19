@@ -18,12 +18,14 @@ DIST="$HERE/dist"
 echo "==> 1/5 拷贝网页文件到 App Bundle"
 rm -rf "$WWW"
 mkdir -p "$WWW"
+# NEXUS 改版后网页游戏本体在 games/blue-fish/，平台外壳不参与打包
+GAME="$ROOT/games/blue-fish"
 for f in index.html style.css game.js audio.js icons.js icons.css boot.js boot.css; do
-  cp "$ROOT/$f" "$WWW/$f"
+  cp "$GAME/$f" "$WWW/$f"
 done
 mkdir -p "$WWW/assets"
-cp -R "$ROOT/assets/fonts" "$WWW/assets/fonts"
-cp -R "$ROOT/assets/img" "$WWW/assets/img"
+cp -R "$GAME/assets/fonts" "$WWW/assets/fonts"
+cp -R "$GAME/assets/img" "$WWW/assets/img"
 # 游戏里用不到的自检页就不打包了
 rm -f "$WWW/assets/img/preview.html"
 du -sh "$WWW"
