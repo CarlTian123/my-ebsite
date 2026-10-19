@@ -159,33 +159,47 @@ class Mixer:
 # instruments
 # ----------------------------------------------------------------------------
 def kick(style="dnb", length=0.55):
+    """three-layer kick: sub sweep + chest thump + beater click."""
     n = int(length * SR)
     t = tt(n)
     if style == "soft":
-        f = 42 + 55 * np.exp(-t * 35)
-        body = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t * 6.5)
-        body = np.tanh(body * 2.0)
-        click = hp(rng.normal(0, 1, n), 2500) * np.exp(-t * 180) * 0.10
-    else:
-        f = 46 + 150 * np.exp(-t * 42)
-        body = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t * 8.0)
-        body = np.tanh(body * 3.4)
-        click = hp(rng.normal(0, 1, n), 1800) * np.exp(-t * 240) * 0.22
-    return (body + click) * 0.92
+        f0, sweep, pitch_dec, amp_dec = 50.0, 78.0, 28.0, 6.2
+        click_amp, click_hp = 0.07, 1500.0
+    elif style == "hard":
+        f0, sweep, pitch_dec, amp_dec = 54.0, 205.0, 48.0, 8.6
+        click_amp, click_hp = 0.26, 1600.0
+    else:  # dnb
+        f0, sweep, pitch_dec, amp_dec = 47.0, 168.0, 44.0, 7.6
+        click_amp, click_hp = 0.21, 1700.0
+    f = f0 + sweep * np.exp(-t * pitch_dec)
+    body = np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t * amp_dec)
+    # 胸腔层：2 倍频，衰减更快，让 kick 在小音箱上也"有型"
+    thump = np.sin(2 * np.pi * np.cumsum(f * 1.95) / SR) * np.exp(-t * amp_dec * 2.6) * 0.32
+    body = np.tanh((body + thump) * 2.8)
+    click = hp(rng.normal(0, 1, n), click_hp) * np.exp(-t * 250) * click_amp
+    # 鼓槌中频：给瞬态一点"啪"
+    beater = bp(rng.normal(0, 1, n), 1100, 5200) * np.exp(-t * 130) * 0.13
+    sig = body + click + beater
+    sig[:64] *= np.linspace(0, 1, 64)
+    return sig * 0.92
 
 
 def snare(style="dnb", length=0.32):
+    """snare = crack + sizzle + detuned shell with a tiny pitch drop."""
     n = int(length * SR)
     t = tt(n)
     noise = rng.normal(0, 1, n)
-    body = bp(noise, 900, 7800) * np.exp(-t * 15)
-    tone = np.sin(2 * np.pi * 185 * t) * np.exp(-t * 24) * 0.5
-    tone += np.sin(2 * np.pi * 278 * t) * np.exp(-t * 30) * 0.22
-    sig = body * 0.75 + tone
+    crack = bp(noise, 1300, 9000) * np.exp(-t * 26)
+    sizzle = bp(noise, 3900, 12500) * np.exp(-t * 45) * 0.55
+    fp = 188.0 * (1.0 + 0.22 * np.exp(-t * 75))
+    shell = np.sin(2 * np.pi * np.cumsum(fp) / SR) * np.exp(-t * 27) * 0.55
+    shell += np.sin(2 * np.pi * np.cumsum(fp * 1.59) / SR) * np.exp(-t * 34) * 0.24
+    sig = crack * 0.82 + sizzle + shell
     if style == "big":
-        sig = bp(sig, 500, 9000)
-        sig *= 1.2
-    return sig * 0.8
+        sig = bp(sig, 340, 9800) * 1.16
+        sig += np.sin(2 * np.pi * 92 * t) * np.exp(-t * 17) * 0.22
+    sig[:48] *= np.linspace(0, 1, 48)
+    return np.tanh(sig * 1.12) * 0.8
 
 
 def clap(length=0.3):
@@ -202,12 +216,18 @@ def clap(length=0.3):
 
 
 def hat(open_=False):
-    n = int((0.28 if open_ else 0.055) * SR)
+    """metallic 808-style hat: six inharmonic squares instead of pure noise."""
+    n = int((0.30 if open_ else 0.06) * SR)
     t = tt(n)
-    noise = rng.normal(0, 1, n)
-    sig = hp(noise, 7200, order=3)
-    sig = bp(sig, 6000, 15000) * np.exp(-t * (11 if open_ else 75))
-    return sig * (0.5 if open_ else 0.38)
+    src = np.zeros(n)
+    for k, fr in enumerate((205.3, 304.4, 369.6, 522.7, 540.0, 800.0)):
+        src += square(phase_of(fr * (1 + 0.004 * k), n, k * 0.61))
+    src = hp(src / 6.0, 6800, order=3)
+    src = bp(src, 6000, 15000)
+    env = np.exp(-t * (9.5 if open_ else 68.0))
+    src *= env
+    src[:32] *= np.linspace(0, 1, 32)
+    return src * (0.46 if open_ else 0.335)
 
 
 def crash(length=2.0):
@@ -303,7 +323,8 @@ def bell(midi, dur=1.6, gain=1.0):
     n = int(dur * SR)
     t = tt(n)
     f = hz(midi)
-    sig = np.sin(2 * np.pi * f * t) * np.exp(-t * 1.8)
+    mod = np.sin(2 * np.pi * f * 2.01 * t) * 1.2 * np.exp(-t * 2.0)
+    sig = np.sin(2 * np.pi * f * t + mod) * np.exp(-t * 1.8)
     sig += np.sin(2 * np.pi * f * 2.76 * t) * np.exp(-t * 4.0) * 0.28
     sig += np.sin(2 * np.pi * f * 5.4 * t) * np.exp(-t * 7.0) * 0.12
     sig *= np.clip(t / 0.004, 0, 1)
@@ -316,8 +337,9 @@ def pad_chord(midis, dur, gain=1.0, cutoff=1500, attack=0.6, release=1.2, width=
     right = np.zeros(n)
     for j, m in enumerate(midis):
         for i in range(3):
-            d = (i - 1) * 0.12
-            f = hz(m) * 2 ** (d * 7 / 1200)
+            d = (i - 1)
+            # 每个音 3 层，间隔 ±9 音分——pad 终于会"呼吸"，而不是三层齐奏
+            f = hz(m) * 2 ** ((d * 9.0) / 1200)
             p = phase_of(f, n, j * 0.21 + i * 0.33)
             v = saw(p)
             left += v * (0.5 + 0.2 * (1 - d))
@@ -336,7 +358,11 @@ def bass_note(midi, dur, gain=1.0, drive=1.0, bright=1.0):
     f = hz(midi)
     p = phase_of(f, n)
     sig = saw(p) * 0.55 + square(p * 0.5) * 0.35 + sine(p) * 0.55
-    sig = lp(sig, 260 + 900 * bright)
+    # 滤波包络：音符起头张开一点再收回去，贝斯就不再是"一根线"
+    dark = lp(sig, 190 + 320 * bright)
+    bright_layer = lp(sig, 520 + 2400 * bright)
+    w = np.exp(-t * 18)
+    sig = dark + (bright_layer - dark) * w
     env = adsr(n, a=0.006, d=0.06, s=0.72, r=0.08)
     sig *= env
     sig = np.tanh(sig * (1.4 * drive)) * 0.62
@@ -385,14 +411,27 @@ def vinyl():
 # ----------------------------------------------------------------------------
 # effects
 # ----------------------------------------------------------------------------
-def make_ir(length=1.7, decay=2.6, bright=0.55):
+def make_ir(length=1.7, decay=2.6, bright=0.55, predelay=0.020):
+    """synthetic room: pre-delay for clarity, highs dying faster than lows."""
     n = int(length * SR)
     t = tt(n)
     ir = rng.normal(0, 1, (n, 2))
-    ir *= np.exp(-t * decay)[:, None]
+    for ch in range(2):
+        lo = lp(ir[:, ch], 1400)
+        hi = ir[:, ch] - lo
+        # 高频尾音衰减更快（真实房间的空气吸收）
+        ir[:, ch] = lo * np.exp(-t * decay) + hi * np.exp(-t * decay * 2.3) * (0.30 + 0.55 * bright)
+        ir[:, ch] = lp(ir[:, ch], 9000 * bright + 1800)
+    # 混响低频收成单声道：贝斯/底鼓在单声道下才站得住
+    lo_l = lp(ir[:, 0], 260)
+    lo_r = lp(ir[:, 1], 260)
+    lo_m = (lo_l + lo_r) * 0.5
+    ir[:, 0] += lo_m - lo_l
+    ir[:, 1] += lo_m - lo_r
     ir[: int(0.012 * SR)] *= np.linspace(0, 1, int(0.012 * SR))[:, None]
-    ir[:, 0] = lp(ir[:, 0], 7000 * bright + 1200)
-    ir[:, 1] = lp(ir[:, 1], 7000 * bright + 1200)
+    d = int(predelay * SR)
+    if d > 0:
+        ir = np.concatenate([np.zeros((d, 2)), ir])[:n]
     ir /= np.sqrt(np.sum(ir ** 2) / 2)
     return ir
 
@@ -677,10 +716,13 @@ def rhodes(midi, dur=1.6, gain=1.0):
     t = tt(n)
     f = hz(midi)
     sig = np.zeros(n)
-    for k, amp, dec in ((1.0, 1.0, 2.2), (2.01, 0.40, 3.6), (3.98, 0.18, 5.4), (6.2, 0.06, 8.0)):
+    for k, amp, dec in ((1.0, 1.0, 2.2), (2.01, 0.42, 3.4), (3.98, 0.20, 5.2),
+                        (6.2, 0.08, 7.5), (11.3, 0.05, 11.0), (17.9, 0.025, 15.0)):
         sig += amp * np.sin(2 * np.pi * f * k * t) * np.exp(-t * dec)
+    # 音叉"叮"：电钢最抓耳的就是这个敲击瞬态
+    sig += bp(rng.normal(0, 1, n), 2500, 9000) * np.exp(-t * 90) * 0.22
     trem = 1.0 + 0.06 * np.sin(2 * np.pi * 4.3 * t)
-    env = adsr(n, 0.006, 0.02, 0.25, 0.5, 1.8)
+    env = adsr(n, 0.004, 0.02, 0.25, 0.5, 1.8)
     return sig * env * trem * 0.30 * gain
 
 
@@ -689,7 +731,8 @@ def glass(midi, dur=2.2, gain=1.0):
     n = int((dur + 0.6) * SR)
     t = tt(n)
     f = hz(midi)
-    sig = np.sin(2 * np.pi * f * t) * np.exp(-t * 1.3)
+    mod = np.sin(2 * np.pi * f * 3.01 * t) * 1.6 * np.exp(-t * 2.2)
+    sig = np.sin(2 * np.pi * f * t + mod) * np.exp(-t * 1.25)
     sig += np.sin(2 * np.pi * f * 2.76 * t) * np.exp(-t * 2.8) * 0.32
     sig += np.sin(2 * np.pi * f * 5.4 * t) * np.exp(-t * 4.6) * 0.13
     sig += np.sin(2 * np.pi * f * 8.9 * t) * np.exp(-t * 7.0) * 0.05
@@ -820,8 +863,8 @@ def build_neon_pulse():
                 for q in range(4):
                     mx.add("kick", t0 + q * b, kick(), 0.72)
                 if bar_i >= 12:
-                    mx.add("clap", t0 + b, clap(), 0.32)
-                    mx.add("clap", t0 + 3 * b, clap(), 0.32)
+                    mx.add("clap", t0 + b, clap(), 0.26)
+                    mx.add("clap", t0 + 3 * b, clap(), 0.26)
             if bar_i >= 8:
                 for s in range(0, 16, 2):
                     mx.add("hat", t0 + s * b / 4, hat(open_=(s % 8 == 6)), 0.20)
@@ -829,8 +872,8 @@ def build_neon_pulse():
                 # snare roll
                 roll = 8 if bar_i == 14 else 16
                 for s in range(roll):
-                    mx.add("snare", t0 + s * (4 * b / roll), snare(), 0.12 + 0.18 * s / roll)
-                mx.add("riser", t0, riser(bar, 0.5), 0.7)
+                    mx.add("snare", t0 + s * (4 * b / roll), snare(), 0.09 + 0.13 * s / roll)
+                mx.add("riser", t0, riser(bar, 0.5), 0.55)
             continue
         # break
         if 32 <= bar_i < 40:
@@ -840,7 +883,7 @@ def build_neon_pulse():
             for s in range(0, 16, 2):
                 mx.add("hat", t0 + s * b / 4, hat(), 0.14)
             if bar_i >= 36:
-                mx.add("riser", t0, riser(bar, 0.65), 0.9)
+                mx.add("riser", t0, riser(bar, 0.65), 0.72)
                 if bar_i >= 38:
                     for s in range(16):
                         mx.add("snare", t0 + s * b / 4, snare(), 0.08 + 0.012 * s)
@@ -1089,14 +1132,14 @@ def build_frostlight():
         if 8 <= bar_i < 16:
             for q in range(4):
                 mx.add("kick", t0 + q * b, kick(), 0.65)
-            mx.add("clap", t0 + b, clap(), 0.34)
-            mx.add("clap", t0 + 3 * b, clap(), 0.34)
+            mx.add("clap", t0 + b, clap(), 0.28)
+            mx.add("clap", t0 + 3 * b, clap(), 0.28)
             for s in range(0, 16, 2):
                 mx.add("hat", t0 + s * b / 4, hat(open_=(s % 8 == 6)), 0.15)
             if bar_i >= 14:
-                mx.add("riser", t0, riser(bar, 0.65), 0.8)
+                mx.add("riser", t0, riser(bar, 0.65), 0.62)
                 for s in range(16):
-                    mx.add("snare", t0 + s * b / 4, snare(), 0.06 + 0.012 * s)
+                    mx.add("snare", t0 + s * b / 4, snare(), 0.05 + 0.009 * s)
             continue
         if 30 <= bar_i < 38:
             # break / build
@@ -1107,8 +1150,8 @@ def build_frostlight():
                 for q in range(4):
                     mx.add("kick", t0 + q * b, kick("soft"), 0.35 + 0.05 * (bar_i - 34))
                 for s in range(16):
-                    mx.add("snare", t0 + s * b / 4, snare(), 0.05 + 0.015 * (bar_i - 34))
-                mx.add("riser", t0, riser(bar, 0.7), 0.85)
+                    mx.add("snare", t0 + s * b / 4, snare(), 0.045 + 0.011 * (bar_i - 34))
+                mx.add("riser", t0, riser(bar, 0.7), 0.7)
             for s in range(0, 16, 4):
                 mx.add("hat", t0 + s * b / 4, hat(), 0.08)
             continue
@@ -1608,7 +1651,7 @@ def build_velvet_static():
     mix = delay_fx(mix, ds, time=b * 0.75, feedback=0.34, wet=0.2)
     mix = lp(mix.T, 8200).T
     mix = master(mix, mud=-2.2, presence=0.7, air=0.9, drive=2.0, wet=0.46,
-                 thr=0.24, ratio=2.8, low_cut=28.0, target_rms=0.225)
+                 thr=0.24, ratio=2.8, low_cut=28.0, target_rms=0.242)
     out = np.zeros((int(seconds * SR), 2))
     k = min(len(out), len(mix))
     out[:k] = mix[:k]
@@ -1779,7 +1822,7 @@ def build_glass_tide():
             ds += mx.bus[stem][: mx.n] * amt
     mix = delay_fx(mix, ds, time=b * 0.75, feedback=0.5, wet=0.34, pingpong=True)
     mix = master(mix, mud=-1.0, presence=0.5, air=1.6, drive=1.45, wet=0.32,
-                 thr=0.26, ratio=2.2, low_cut=25.0, target_rms=0.248)
+                 thr=0.26, ratio=2.2, low_cut=25.0, target_rms=0.258)
     out = np.zeros((int(seconds * SR), 2))
     k = min(len(out), len(mix))
     out[:k] = mix[:k]
