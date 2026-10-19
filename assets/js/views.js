@@ -115,13 +115,17 @@ export function renderHome({ games }) {
     setAmbient(g);
 
     if (animate && !reduceMotion()) {
+      /* 文字换内容时不要整块黑掉：从 0.15 起淡入，最长一档也只等 84ms */
       [titleEl, descEl, metaEl, actionsEl].forEach((el, n) => {
         el.getAnimations?.().forEach((a) => a.cancel());
         el.animate([
-          { opacity: 0, transform: 'translateY(10px)' },
+          { opacity: 0.15, transform: 'translateY(8px)' },
           { opacity: 1, transform: 'none' }
-        ], { duration: 420, delay: n * 45, easing: 'cubic-bezier(.16,.84,.26,1)', fill: 'backwards' });
+        ], { duration: 320, delay: n * 28, easing: 'cubic-bezier(.16,.84,.26,1)', fill: 'backwards' });
       });
+      heroArt.getAnimations?.().forEach((a) => a.cancel());
+      heroArt.animate([{ opacity: 0.2 }, { opacity: 0.55 }],
+        { duration: 520, easing: 'cubic-bezier(.22,.61,.36,1)' });
     }
   }
 
