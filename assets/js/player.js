@@ -204,21 +204,21 @@ export async function renderPlayer({ game, mount }) {
 
   async function load(url) {
     session.ready = false;
-    const result = await preflight(url);
-    if (!session.alive) return;
 
-    if (!result.ok) {
-      const msg = result.status === 404
-        ? `找不到游戏入口文件（${game.entry}）。可能已被移动或未上传完整。`
-        : result.status
-          ? `游戏入口返回 ${result.status}，暂时无法打开。`
-          : '网络请求被中断或超时，无法访问游戏入口。';
-      fail('游戏入口不可用', msg);
-      return;
-    }
+    /* 弱网纪律：
+       · iframe 立刻开始加载（不等校验），避免两段等待串行相加；
+       · 但 ready 必须等「加载完成 + 入口校验通过」两个条件都满足，
+         否则 404 页面会先 load 成功、把错误当成正常进入；
+       · 校验失败就收回 iframe 并给出可操作错误面。 */
+    let loaded = false;
+    let verified = false;
+    let aborted = false;
+    let settled = false;
 
-    frame.onload = () => {
-      if (!session.alive) return;
+    function settle() {
+      if (settled || aborted || !session.alive) return;
+      if (!loaded || !verified) return;
+      settled = true;
       session.ready = true;
       /* 同源可访问：监听游戏运行时的未捕获错误 */
       try {
@@ -238,13 +238,38 @@ export async function renderPlayer({ game, mount }) {
       frame.classList.add('is-ready');
       status.classList.add('is-hidden');
       readyDeferred.resolve({ ok: true });
+    }
+
+    frame.onload = () => {
+      if (aborted) return;
+      loaded = true;
+      settle();
     };
 
     frame.onerror = () => {
+      if (!session.alive || aborted) return;
       fail('游戏加载失败', '浏览器报告游戏页面无法加载，请重试或返回详情。');
     };
 
     frame.src = url;
+
+    const result = await preflight(url);
+    if (!session.alive) return;
+
+    if (!result.ok) {
+      aborted = true;
+      try { frame.src = 'about:blank'; } catch { /* 忽略 */ }
+      const msg = result.status === 404
+        ? `找不到游戏入口文件（${game.entry}）。可能已被移动或未上传完整。`
+        : result.status
+          ? `游戏入口返回 ${result.status}，暂时无法打开。`
+          : '网络请求被中断或超时，无法访问游戏入口。';
+      fail('游戏入口不可用', msg);
+      return;
+    }
+
+    verified = true;
+    settle();
 
     /* 兜底：某些浏览器对 iframe 加载失败不触发 onerror */
     setTimeout(() => {

@@ -974,6 +974,22 @@ body.is-playing .toast-stack { bottom: calc(72px + env(safe-area-inset-bottom, 0
   transition: opacity 300ms linear;
 }
 .launch__hint.is-in { opacity: 1; }
+/* 弱网时出现的一行真实状态：不是进度条，只是告诉用户"还在下载" */
+.launch__wait {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  letter-spacing: 0.14em;
+}
+.launch__wait.is-in { display: inline-flex; }
+.launch__wait::before {
+  content: "";
+  width: 14px;
+  height: var(--hair);
+  background: currentColor;
+  opacity: 0.6;
+}
 .launch__skip {
   pointer-events: auto;
   padding: 6px 12px;

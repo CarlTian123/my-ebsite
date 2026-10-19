@@ -75,8 +75,10 @@ function build() {
     onclick: () => doSkip()
   }, '跳过 · ESC');
 
+  const waitLine = h('span', { class: 'mono launch__wait', role: 'status' }, '正在载入游戏…');
   const hint = h('div', { class: 'launch__hint' },
     h('span', { class: 'mono' }, 'Byebye Games Engine v1.0'),
+    waitLine,
     skipBtn
   );
 
@@ -90,7 +92,7 @@ function build() {
   }, stage, hint);
 
   document.body.append(root);
-  return { root, stage, veil, card, cardImg, cardTitle, cardSub, cardCap, brand, gate, brandName, doors, doorL, doorR, hint, skipBtn };
+  return { root, stage, veil, card, cardImg, cardTitle, cardSub, cardCap, brand, gate, brandName, doors, doorL, doorR, hint, skipBtn, waitLine };
 }
 
 function ensure() {
@@ -185,9 +187,29 @@ export async function performLaunch({ game, from, fast = false, ready }) {
       await fullPath(u, { from, skipped: () => skipped, skipPromise });
     }
 
-    /* ---- E 段：等真实就绪 ---- */
+    /* ---- E 段：等真实就绪 ----
+       两道保险，都不伪造进度：
+       ① 2.6s 后把「正在载入游戏…」显示出来，用户知道网络在做事；
+       ② 20s 硬超时照样开门——此时交给播放器自己的「正在进入…」状态，
+          而不是让用户对着一整块黑门无限等下去。 */
     el.hint.classList.add('is-in');
-    const result = await Promise.race([ready, skipPromise.then(() => ({ ok: true, timedOutBySkip: true }))]);
+    const slowTimer = setTimeout(() => {
+      el.waitLine.classList.add('is-in');
+    }, 1200);
+    const watchdog = new Promise((res) => {
+      setTimeout(() => res({ ok: true, timedOutByWatchdog: true }), 20000);
+    });
+    let result;
+    try {
+      result = await Promise.race([
+        ready,
+        skipPromise.then(() => ({ ok: true, timedOutBySkip: true })),
+        watchdog
+      ]);
+    } finally {
+      clearTimeout(slowTimer);
+      el.waitLine.classList.remove('is-in');
+    }
 
     if (!result || result.ok === false) {
       await abortDoors(u, quick);
