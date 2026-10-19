@@ -561,7 +561,7 @@ def master(mix, mud=-1.2, presence=0.8, air=1.4, drive=1.4, wet=0.28,
 
 def human(t, amt=0.006):
     """small timing jitter, keeps loops from sounding machine-locked"""
-    return t + float(rng.uniform(-amt, amt))
+    return max(0.0, t + float(rng.uniform(-amt, amt)))
 
 
 def hum_vel(base, amt=0.12):
@@ -1321,6 +1321,9 @@ def build_ion_rush():
         if bar_i % 2 == 0:
             root_pc, qual = chord_at(bar_i)
             mx.add("stab", base, hoover_stab(chord_notes(root_pc, qual, 3), b * 1.2, 1.0), 0.48)
+        # 反拍硬核 stab：把四拍墙补满
+        mx.add("stab", base + 2.5 * b,
+               hoover_stab(chord_notes(*chord_at(bar_i), 3), b * 0.7, 0.7), 0.25, pan=-0.16)
         mx.add("sub", base, sub_note(root, bar * 0.95, 0.9), 0.50)
 
     # --- drop 1 16..34
@@ -1358,6 +1361,13 @@ def build_ion_rush():
         drums_drop(bar_i, extra=(bar_i % 4 == 3))
     for n, sb in enumerate((44, 48, 52, 56, 60)):
         play_riff(sb, 12 if n % 2 else 0, 0.66)
+    # drop2 后段的高音应答，和主 riff 错位
+    for bar_i in range(50, 64, 4):
+        for i, off in enumerate((0.0, 0.5, 1.0, 1.5)):
+            midi = bass_at(bar_i) + 24 + (0, 12, 19, 24)[i]
+            mx.add("lead", bar_i * bar + off * b,
+                   lead_note(midi, b * 0.42, bright=1.35, gain=0.8, voices=3),
+                   0.20, pan=0.34)
     for i in range(16):
         mx.add("snare", 65 * bar + i * b * 0.25, snare_hard(), 0.14 + i * 0.03)
 
@@ -1401,7 +1411,7 @@ def build_ion_rush():
     if "lead" in mx.bus:
         ds += mx.bus["lead"][: mx.n] * 0.4
     mix = delay_fx(mix, ds, time=b * 0.75, feedback=0.32, wet=0.18)
-    mix = master(mix, mud=-1.8, presence=1.2, air=0.9, drive=2.3, wet=0.52,
+    mix = master(mix, mud=-1.8, presence=0.9, air=0.3, drive=2.0, wet=0.48,
                  thr=0.30, ratio=3.2, low_cut=28.0, target_rms=0.315)
     out = np.zeros((int(seconds * SR), 2))
     k = min(len(out), len(mix))
@@ -1448,9 +1458,12 @@ def build_velvet_static():
     for bar_i in range(0, bars, 2):
         root_pc, qual = chord_at(bar_i)
         dur = bar * 2.1
-        for j, m in enumerate(chord_notes(root_pc, qual, 3)):
-            mx.add("rhodes", bar_i * bar + j * 0.016, rhodes(m, dur, 0.9), 0.30,
-                   pan=(-0.28 + j * 0.14))
+        # 根音交给贝斯，Rhodes 只弹 3-5-7-9，低音区立刻不再打架
+        voicing = chord_notes(root_pc, qual, 4)[1:]
+        for j, m in enumerate(voicing):
+            mx.add("rhodes", human(bar_i * bar + j * 0.02, 0.008),
+                   rhodes(m, dur, 0.9), hum_vel(0.34, 0.10),
+                   pan=(-0.28 + j * 0.16))
 
     kick_times = []
     # --- drums + walking bass 2..29
@@ -1466,16 +1479,24 @@ def build_velvet_static():
             mx.add("snare", base + 3 * b, snare_brush(), 0.55)
         for i in range(8):
             t = base + i * 0.5 * b + (0.06 * b if i % 2 else 0.0)
-            mx.add("hat", t, hat(False), 0.20 + (0.05 if i % 2 == 0 else 0.0),
+            mx.add("hat", t, hat(False),
+                   hum_vel(0.20 + (0.05 if i % 2 == 0 else 0.0), 0.18),
                    pan=(0.32 if i % 2 else -0.32))
         if bar_i % 2 == 1:
             mx.add("hat", base + 3.5 * b + 0.06 * b, hat(True), 0.16, pan=0.2)
+        if bar_i >= 8 and bar_i % 2 == 0:
+            mx.add("snare", base + 2.75 * b, snare_brush(0.16), 0.15, pan=0.2)
         root = bass_at(bar_i)
         walk = [0, 7, 10, 7, 12, 10, 7, 3]
         for i in range(4):
             mx.add("bass", base + i * b,
                    bass_note(root + walk[i], b * 0.92, 0.9, drive=0.45, bright=0.3),
                    0.55, pan=0.02)
+        # 两小节一次的半音经过音，衔接下一个和弦
+        if bar_i % 2 == 1:
+            mx.add("bass", base + 3.5 * b,
+                   bass_note(bass_at(bar_i + 1) - 1, b * 0.42, 0.9, drive=0.4, bright=0.3),
+                   0.32, pan=0.03)
 
     def chord_pad(bar_i, dur_mult=2.0, cutoff=1400, gain=0.30):
         root_pc, qual = chord_at(bar_i)
@@ -1504,6 +1525,10 @@ def build_velvet_static():
 
     for sb in (8, 20):
         play_mel(sb)
+    # drop2 后半段：高八度应答句，避免 8 小节旋律原样重放
+    for off, midi, dur in ((0, 79, 1.5), (1.5, 77, 0.5), (2, 75, 1.0), (3.5, 72, 1.5),
+                           (8, 77, 1.0), (9, 79, 1.0), (10, 80, 2.0), (13, 75, 1.5)):
+        mx.add("lead", 24 * bar + off * b, muted_lead(midi, dur * b, 0.7), 0.28, pan=-0.26)
     # sparse answers in the bridge
     for off, midi, dur in ((0, 70, 1.5), (2, 68, 1.5), (4, 75, 2.0), (7, 72, 1.0)):
         mx.add("lead", 16 * bar + off * b, muted_lead(midi, dur * b, 1.0), 0.45, pan=-0.12)
@@ -1541,7 +1566,7 @@ def build_velvet_static():
         ds += mx.bus["lead"][: mx.n] * 0.45
     mix = delay_fx(mix, ds, time=b * 0.75, feedback=0.34, wet=0.2)
     mix = lp(mix.T, 8200).T
-    mix = master(mix, mud=-1.4, presence=0.3, air=0.7, drive=2.2, wet=0.46,
+    mix = master(mix, mud=-2.2, presence=0.7, air=0.9, drive=2.0, wet=0.46,
                  thr=0.24, ratio=2.8, low_cut=28.0, target_rms=0.225)
     out = np.zeros((int(seconds * SR), 2))
     k = min(len(out), len(mix))
@@ -1601,6 +1626,14 @@ def build_glass_tide():
             mx.add("glass", bar_i * bar + i * b * 0.25,
                    glass(m, 1.4, 0.7), gain, pan=(-0.35 + 0.09 * (i % 8)))
 
+    # 高八度微光层，只在中后段出现，给副歌一点空间感
+    for bar_i in range(10, 38, 2):
+        root_pc, qual = chord_at(bar_i)
+        mx.add("pad", bar_i * bar,
+               pad_chord([m + 12 for m in chord_notes(root_pc, qual, 4)[1:]],
+                         bar * 2.4, 0.6, cutoff=3000, attack=2.2, release=3.0),
+               0.10, pan=0.15)
+
     for bar_i in range(0, 14):
         arp(bar_i, 0.20)
     for bar_i in range(14, 38):
@@ -1653,6 +1686,14 @@ def build_glass_tide():
     for sb in (14, 32):
         play_mel(sb, 0.40)
 
+    # drop2：高音玻璃音型，和主旋律错开
+    for bar_i in range(32, 38):
+        tones = chord_notes(*chord_at(bar_i), 6)
+        for i in range(4):
+            mx.add("glass", bar_i * bar + i * b * 0.75,
+                   glass(tones[(i * 2) % len(tones)], 1.1, 0.4), 0.13,
+                   pan=(-0.42 + i * 0.24))
+
     # --- transitions
     mx.add("fx", 0.0, reverse_cymbal(4.0, 0.35), 0.55)
     mx.add("fx", 6 * bar, riser(bar * 3, 0.45, 200, 7000), 0.5)
@@ -1664,6 +1705,12 @@ def build_glass_tide():
     mx.add("fx", 32 * bar, impact(3.2), 0.55)
     mx.add("fx", 38 * bar, impact(3.6), 0.4)
     mx.add("fx", 41 * bar, reverse_cymbal(2.0, 0.3), 0.5)
+
+    # 极轻的磁带底噪，让安静的段落也有"房间"
+    nz = int(4.0 * SR)
+    wash = hp(rng.normal(0.0, 1.0, nz), 3200) * adsr(nz, 1.4, 0.3, 0.6, 1.6)
+    for bar_i in range(0, 40, 8):
+        mx.add("fx", bar_i * bar, wash, 0.055)
 
     sc = sidechain_env(kick_times, mx.n + SR * 3, depth=0.4, release=0.22)
     for stem in ("bass", "sub", "pad", "glass"):
@@ -1689,7 +1736,7 @@ def build_glass_tide():
         if stem in mx.bus:
             ds += mx.bus[stem][: mx.n] * amt
     mix = delay_fx(mix, ds, time=b * 0.75, feedback=0.5, wet=0.34, pingpong=True)
-    mix = master(mix, mud=-0.9, presence=0.5, air=2.4, drive=1.45, wet=0.32,
+    mix = master(mix, mud=-1.0, presence=0.5, air=1.6, drive=1.45, wet=0.32,
                  thr=0.26, ratio=2.2, low_cut=25.0, target_rms=0.248)
     out = np.zeros((int(seconds * SR), 2))
     k = min(len(out), len(mix))
