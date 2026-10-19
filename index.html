@@ -1,293 +1,53 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
-<meta name="theme-color" content="#020a12" />
-<title>蓝鱼枪战 · 深海火拼</title>
-<link rel="preload" href="assets/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="assets/fonts/noto-sans-sc-600.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="assets/fonts/noto-sans-sc-700.woff2" as="font" type="font/woff2" crossorigin />
-<link rel="stylesheet" href="style.css" />
-<link rel="stylesheet" href="boot.css" />
-<link rel="stylesheet" href="icons.css" />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23071420'/%3E%3Cpath d='M20 32c0-7 8-12 15-12s13 5 13 12-6 12-13 12-15-5-15-12z' fill='%236ee7ff'/%3E%3Cpath d='M20 32l-9-8v16z' fill='%237cf0c9'/%3E%3Ccircle cx='41' cy='28' r='3.4' fill='%23fff'/%3E%3Ccircle cx='42' cy='28' r='1.6' fill='%23071420'/%3E%3C/svg%3E" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NEXUS — Ultimate Web Gaming Platform</title>
+<meta name="description" content="NEXUS 是 Hello Games Studio 自研游戏在网页上的统一入口。所有游戏都在浏览器里原生运行，不需要安装，进度保存在本机。">
+<meta name="theme-color" content="#080a0c">
+<meta name="color-scheme" content="dark light">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="NEXUS">
+<meta property="og:title" content="NEXUS — Ultimate Web Gaming Platform">
+<meta property="og:description" content="三款原创游戏，一个入口。Hello Games Studio · Byebye Games Engine v1.0">
+<meta property="og:image" content="assets/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="NEXUS — Ultimate Web Gaming Platform">
+<meta name="twitter:description" content="三款原创游戏，一个入口。">
+<meta name="twitter:image" content="assets/img/og.png">
+
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/img/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="assets/img/favicon-16.png" sizes="16x16" type="image/png">
+<link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+
+<link rel="preload" href="assets/fonts/inter-var.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/noto-sans-sc-400.woff2" as="font" type="font/woff2" crossorigin>
+
+<link rel="stylesheet" href="assets/css/tokens.css">
+<link rel="stylesheet" href="assets/css/base.css">
+<link rel="stylesheet" href="assets/css/components.css">
+<link rel="stylesheet" href="assets/css/views.css">
+<link rel="stylesheet" href="assets/css/motion.css">
 </head>
 <body>
-<canvas id="game"></canvas>
-
-<!-- ==================== HUD ==================== -->
-<div id="hud">
-
-  <section id="leftPanel" class="hudVitals">
-    <div class="hpCapsule lg">
-      <div class="hpValue"><span id="hpText">20</span><span id="hpMax">/ 20</span></div>
-      <div class="hpTrack"><i id="hpFill"></i></div>
-    </div>
-    <div id="shWrap" class="hidden shieldPill">
-      <span>护盾</span><b id="shText">1</b><div class="shieldTrack"><i id="shFill"></i></div>
-    </div>
-    <div class="hudWeapon lg">
-      <div class="weaponLine" id="weaponRow"><strong id="weaponName">水枪手枪</strong><span class="keyTag" id="weaponKey">1 键</span></div>
-      <div class="hudMetaLine" id="dashRow"><span class="dashPill" id="dashPill">就绪</span></div>
-      <div class="hudLevelLine"><span id="lvText">Lv.1</span><span id="xpText">0 / 20</span></div>
-      <div class="xpTrack"><i id="xpFill"></i></div>
-    </div>
-  </section>
-
-  <section id="rightPanel" class="hudTelemetry lg">
-    <div class="teleRow"><span>波次</span><b id="waveText">第 1 波</b></div>
-    <div class="teleRow"><span>剩余</span><b id="waveLeftText">0</b></div>
-    <div class="teleRow"><span>金币</span><b id="coinText">0</b></div>
-    <div class="teleRow"><span>击杀</span><b id="killText">0</b></div>
-    <div class="teleRow hudOptional"><span>得分</span><b id="scoreText">0</b></div>
-    <div class="teleRow hudOptional"><span>存活</span><b id="timeText">0:00</b></div>
-    <div class="teleRow hudOptional"><span>难度</span><b id="diffText">普通</b></div>
-    <div class="teleRow hudOptional"><span>最高</span><b id="bestText">0</b></div>
-  </section>
-
-  <div id="ragePill" class="hidden">狂暴 ×1.6</div>
-
-  <div id="bossBar" class="lg hidden">
-    <div class="bossNameRow"><span class="bossGlyph" aria-hidden="true"></span><strong id="bossName">深海鲨王</strong></div>
-    <div class="bossTrack"><i id="bossFill"></i></div>
+<a class="skip-link" href="#app">跳到主要内容</a>
+<main id="app" tabindex="-1"></main>
+  <div class="toast-stack" role="status" aria-live="polite"></div>
+<noscript>
+  <div style="padding:64px 24px;font-family:system-ui,sans-serif;color:#e8ecef;background:#080a0c;min-height:100vh">
+    <h1 style="font-size:24px;margin:0 0 12px">NEXUS 需要 JavaScript</h1>
+    <p style="color:#9aa5af;max-width:52ch;line-height:1.7">
+      这个平台用原生 JavaScript 模块组织页面与启动流程，没有它是空的。
+      请在浏览器设置里允许本站运行脚本，然后刷新。
+    </p>
   </div>
-
-  <div id="buffs"></div>
-  <div id="gunBar" class="lg"></div>
-
-  <div id="touchUI" class="hidden">
-    <button id="btnDashM" class="touchBtn lg" aria-label="冲刺"><span>冲</span></button>
-    <button id="btnPauseM" class="touchBtn lg" aria-label="暂停"><span>停</span></button>
-  </div>
-
-  <div id="pickupHint"></div>
-  <div class="flash" id="flash"></div>
-  <div id="lowhp"></div>
-</div>
-
-<!-- ==================== 波间商店 ==================== -->
-<div id="shop" class="lg hidden">
-  <div class="shopHead">
-    <div class="shopTitleRow">
-      <h2 class="shopTitle">整备</h2>
-      <span class="shopCoin">金币 <b id="shopCoin">0</b></span>
-    </div>
-    <p class="shopSub">第 <b id="shopWave">1</b> 波已清除 · <span class="shopTimer" id="shopTimer">12s</span></p>
-  </div>
-  <div class="shopBody" id="shopBody"></div>
-  <div class="shopFoot">
-    <button id="shopSkip" class="btn primary lg">提前出击 <span class="plus">+3</span></button>
-  </div>
-</div>
-
-<div id="achToast"></div>
-
-<div id="rotateHint">
-  <div class="rotTitle">请横屏游玩</div>
-  <div class="rotSub">横过手机后画面会自动铺满 · 左半屏拖动移动，右半屏点哪打哪</div>
-</div>
-
-<!-- ==================== 覆盖层 ==================== -->
-<div id="overlay">
-
-  <!-- 开始界面 -->
-  <section id="scrStart" class="screen startScreen">
-    <div class="startScene">
-      <header class="startHead">
-        <div class="brandBlock">
-          <h1>蓝鱼枪战</h1>
-          <p class="brandLine">深海火线</p>
-        </div>
-        <p class="startLead">红鱼成群，你只有 <b>20 点生命</b>，倒下 <b>2.6 秒</b>后回来。<br>每 <b>5 波</b>，深海鲨王浮出水面。</p>
-      </header>
-
-      <div class="heroOrb">
-        <span class="heroAura" aria-hidden="true"></span>
-        <img class="heroArt" src="assets/img/hero-fish.png" alt="" draggable="false" onerror="this.classList.add('gone')">
-      </div>
-
-      <div class="startPlay">
-        <ul class="feats">
-          <li class="feat"><b>7</b><span>种枪械</span></li>
-          <li class="feat"><b>3</b><span>选 1 强化</span></li>
-          <li class="feat"><b>2.6</b><span>秒复活</span></li>
-          <li class="feat"><b>5</b><span>波一鲨王</span></li>
-        </ul>
-
-        <div class="diffBlock">
-          <span class="microLabel">难度</span>
-          <div class="pillSegment" id="diffPills">
-            <button class="pill" data-d="easy" data-diff="easy">轻松</button>
-            <button class="pill on" data-d="normal" data-diff="normal">普通</button>
-            <button class="pill" data-d="hard" data-diff="hard">狂暴</button>
-          </div>
-        </div>
-
-        <div class="startActions">
-          <button id="btnStart" class="startCta">开始游戏</button>
-          <div class="startLinks">
-            <button id="btnProfile" class="startLink">档案</button>
-            <button id="btnSettingsMenu" class="startLink">设置</button>
-          </div>
-        </div>
-        <p class="startTip" id="startTip">最高分 0</p>
-      </div>
-
-      <aside class="startInfo">
-        <section class="guideBlock">
-          <h2>玩法</h2>
-          <p>打 <b>3 枪</b> 干掉一条红鱼。倒下后原地满血复活，武器与强化保留。</p>
-          <p>清空一波进入 <b>12 秒</b>整备，买补给、拿强化；提前出击再得 <b>+3</b> 金币。</p>
-          <p>每击杀 <b>20 条</b>红鱼升一级，从 <b>3 张</b>卡里选 1 张。每 <b>5 波</b>，深海鲨王登场。</p>
-        </section>
-        <section class="guideBlock">
-          <h2>操作</h2>
-          <div class="keyList deskKeys">
-            <div><kbd>W A S D</kbd><span>游动</span></div>
-            <div><kbd>鼠标</kbd><span>瞄准</span></div>
-            <div><kbd>左键</kbd><kbd>空格</kbd><span>开火</span></div>
-            <div><kbd>Shift</kbd><kbd>右键</kbd><span>冲刺</span></div>
-            <div><kbd>1–7</kbd><kbd>Q</kbd><kbd>E</kbd><span>换枪</span></div>
-            <div><kbd>P</kbd><kbd>Esc</kbd><span>暂停</span></div>
-          </div>
-          <div class="keyList touchKeys">
-            <div><kbd>左半屏</kbd><span>拖动游动</span></div>
-            <div><kbd>右半屏</kbd><span>点哪打哪</span></div>
-            <div><kbd>冲刺</kbd><span>右下玻璃球</span></div>
-            <div><kbd>摇一摇</kbd><span>深海脉冲</span></div>
-            <div><kbd>底部</kbd><span>点枪换枪</span></div>
-          </div>
-        </section>
-      </aside>
-    </div>
-  </section>
-
-  <!-- 暂停界面 -->
-  <section id="scrPause" class="screen sheet lg hidden">
-    <div class="sheetHead">
-      <h2>已暂停</h2>
-      <p>深海暂时安静了下来</p>
-    </div>
-    <div class="sheetBody">
-      <div class="statsGrid" id="pauseStats"></div>
-    </div>
-    <div class="sheetActions">
-      <button id="btnResume" class="btn primary lg">继续游戏</button>
-      <button id="btnSettingsPause" class="btn ghost lg">设置</button>
-      <button id="btnRestart" class="btn ghost lg">重新开始</button>
-      <button id="btnMenu" class="btn danger lg">返回主菜单</button>
-    </div>
-    <p class="footnote">P / Esc 继续 · R 重新开始</p>
-  </section>
-
-  <!-- 设置界面 -->
-  <section id="scrSettings" class="screen sheet settingsSheet lg hidden">
-    <div class="sheetHead">
-      <h2>设置</h2>
-      <p>声音、手感与画质</p>
-    </div>
-
-    <div class="settingsBody">
-      <div class="setGroup">
-        <div class="groupHead"><h3>音频</h3></div>
-        <div class="setRow"><label for="setSfx">音效音量</label><div class="setCtrl"><input type="range" id="setSfx" min="0" max="100" step="5"><span class="val" id="valSfx">80%</span></div></div>
-        <div class="setRow"><label for="setMusic">背景音乐</label><div class="setCtrl"><input type="range" id="setMusic" min="0" max="100" step="5"><span class="val" id="valMusic">50%</span></div></div>
-      </div>
-
-      <div class="setGroup">
-        <div class="groupHead"><h3>画面</h3></div>
-        <div class="setRow"><label for="setShake">屏幕震动</label><div class="setCtrl"><input type="range" id="setShake" min="0" max="100" step="10"><span class="val" id="valShake">80%</span></div></div>
-        <div class="setRow"><label for="setParticles">粒子效果</label><div class="setCtrl"><select id="setParticles">
-          <option value="low">低 · 流畅</option>
-          <option value="medium">中</option>
-          <option value="high">高 · 华丽</option>
-        </select></div></div>
-        <div class="setRow"><label for="setDmg">伤害数字</label><div class="setCtrl"><div class="switch on" id="setDmg" role="switch" aria-label="伤害数字"><i></i></div></div></div>
-      </div>
-
-      <div class="setGroup mobileOnly" id="setTouch">
-        <div class="groupHead"><h3>触屏</h3></div>
-        <div class="setRow"><label for="setHaptic">震动反馈</label><div class="setCtrl"><div class="switch" id="setHaptic" role="switch" aria-label="震动反馈"><i></i></div></div></div>
-        <div class="setRow"><label for="setTilt">体感微调</label><div class="setCtrl"><div class="switch" id="setTilt" role="switch" aria-label="体感微调"><i></i></div></div></div>
-        <div class="setRow"><label for="setShakeSkill">摇一摇脉冲</label><div class="setCtrl"><div class="switch" id="setShakeSkill" role="switch" aria-label="摇一摇脉冲"><i></i></div></div></div>
-        <div class="setRow"><label for="setAimAssist">触屏辅助瞄准</label><div class="setCtrl"><div class="switch" id="setAimAssist" role="switch" aria-label="触屏辅助瞄准"><i></i></div></div></div>
-        <div class="setRow"><label for="setLeftHanded">左手模式<span class="setHint">左右操作区对调</span></label><div class="setCtrl"><div class="switch" id="setLeftHanded" role="switch" aria-label="左手模式"><i></i></div></div></div>
-        <div class="setRow sub"><p>摇一摇手机释放「深海脉冲」清屏；体感微调以打开开关时的持机姿态为基准。</p></div>
-      </div>
-
-      <div class="setGroup">
-        <div class="groupHead"><h3>对局</h3></div>
-        <div class="setRow"><label for="setDiff">难度</label><div class="setCtrl"><select id="setDiff">
-          <option value="easy">轻松</option>
-          <option value="normal">普通</option>
-          <option value="hard">狂暴</option>
-        </select></div></div>
-      </div>
-
-      <div class="setGroup qualityGroup">
-        <div class="groupHead"><h3>画质</h3></div>
-        <div class="setRow"><label for="setQuality">画质档位</label><div class="setCtrl"><select id="setQuality">
-          <option value="low">流畅</option>
-          <option value="std">标准</option>
-          <option value="high">高</option>
-          <option value="ultra">极致</option>
-        </select></div></div>
-        <div class="setRow"><label for="setGlass">玻璃模糊</label><div class="setCtrl"><div class="switch on" id="setGlass" role="switch" aria-label="玻璃模糊"><i></i></div></div></div>
-        <div class="setRow"><label for="setSpecular">玻璃扫光</label><div class="setCtrl"><div class="switch on" id="setSpecular" role="switch" aria-label="玻璃扫光"><i></i></div></div></div>
-        <div class="setRow"><label for="setJelly">液态按压</label><div class="setCtrl"><div class="switch on" id="setJelly" role="switch" aria-label="液态按压"><i></i></div></div></div>
-        <div class="setRow"><label for="setGyro">陀螺仪视差</label><div class="setCtrl"><div class="switch on" id="setGyro" role="switch" aria-label="陀螺仪视差"><i></i></div></div></div>
-        <div class="setRow"><label for="setAmbient">战况明暗</label><div class="setCtrl"><div class="switch on" id="setAmbient" role="switch" aria-label="战况明暗"><i></i></div></div></div>
-        <div class="setRow sub"><p>极致档最漂亮；卡顿时下调一档。低档位会关闭玻璃模糊，保持 60 帧。</p></div>
-      </div>
-    </div>
-
-    <div class="sheetActions">
-      <button id="btnSettingsBack" class="btn primary lg">返回</button>
-      <button id="btnWipe" class="btn danger ghostDanger lg">清空最高分</button>
-    </div>
-  </section>
-
-  <!-- 升级卡片 -->
-  <section id="scrCards" class="screen cardsSheet lg hidden">
-    <div class="sheetHead center">
-      <h2 id="cardTitle">武 器 升 级</h2>
-      <p id="cardSub">选择一张强化卡 · 按 1 / 2 / 3 或点击</p>
-    </div>
-    <div class="cardRow" id="cardRow"></div>
-    <p class="footnote center">卡片效果可以叠加 · 稀有卡（紫）与武器卡（金）更强力</p>
-  </section>
-
-  <!-- 档案 / 成就 -->
-  <section id="scrProfile" class="screen sheet profileSheet lg hidden">
-    <div class="sheetHead">
-      <h2>档案</h2>
-      <p id="profileSub">跨局累计</p>
-    </div>
-
-    <div class="profileBody">
-      <div class="achHeadRow statsHeadRow">
-        <div class="groupHead"><h3>统计</h3></div>
-      </div>
-      <div class="statsGrid profileStats" id="profileStats"></div>
-      <div class="achHeadRow">
-        <div class="groupHead"><h3>成就</h3></div>
-        <span class="achCount" id="achCount">0 / 12</span>
-      </div>
-      <div class="achGrid" id="achGrid"></div>
-    </div>
-
-    <div class="sheetActions">
-      <button id="btnProfileBack" class="btn primary lg">返回</button>
-      <button id="btnProfileWipe" class="btn danger ghostDanger lg">清空档案</button>
-    </div>
-  </section>
-
-</div>
-
-<script src="boot.js"></script>
-<script src="icons.js"></script>
-<script src="audio.js"></script>
-<script src="game.js"></script>
+</noscript>
+<script type="module" src="assets/js/app.js"></script>
 </body>
 </html>

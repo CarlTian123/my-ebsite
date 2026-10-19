@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+<meta name="theme-color" content="#05050d" />
+<title>PHI:NEON — 原创节奏游戏</title>
+<link rel="icon" type="image/svg+xml" href="img/favicon.svg" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<div id="stage">
+  <canvas id="game"></canvas>
+
+  <!-- ======================= HUD ======================= -->
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div class="hud-song">
+        <div id="hudTitle">NEON PULSE</div>
+        <div class="hud-sub"><span id="hudDiff" class="diff-badge">IN 14</span><span id="hudArtist">DSH SOUND LAB</span></div>
+      </div>
+      <div class="hud-scorebox">
+        <div id="score">0000000</div>
+        <div id="acc">100.00%</div>
+      </div>
+    </div>
+    <div id="combo" class="combo"><div id="comboNum">0</div><div class="combo-label">COMBO</div></div>
+    <div id="judge" class="judge"></div>
+    <div id="autoTag" class="auto-tag hidden">AUTO PLAY</div>
+    <div id="touchHint" class="touch-hint hidden">点击判定线击打 · 按住长条 · 滑动接 Flick</div>
+    <div id="rotateHint" class="rotate-hint">横屏体验更佳</div>
+    <button id="btnPause" class="hud-pause" aria-label="暂停">❚❚</button>
+    <div id="pauseHint" class="pause-hint">ESC 暂停</div>
+    <div id="progress" class="progress"><i id="progressFill"></i></div>
+  </div>
+
+  <!-- ======================= MAIN MENU ======================= -->
+  <div id="menu" class="screen">
+    <div class="menu-glow g1"></div>
+    <div class="menu-glow g2"></div>
+    <div class="menu-grid"></div>
+    <header class="menu-head">
+      <div class="brand">
+        <div class="brand-mark">PHI<span>:</span>NEON</div>
+        <div class="brand-sub">ORIGINAL RHYTHM GAME <em>/</em> 2026</div>
+      </div>
+      <div class="menu-actions">
+        <button id="btnSettings" class="ghost-btn" title="设置">⚙ 设置</button>
+      </div>
+    </header>
+
+    <main class="menu-main">
+      <div class="section-label"><span>SELECT TRACK</span><b id="trackCount">05</b></div>
+      <div id="songList" class="song-list"></div>
+      <div class="touch-guide">
+        <div><b>TAP</b><span>点击判定线</span><em>击打 Tap</em></div>
+        <div><b>HOLD</b><span>按住长条</span><em>跟随 Hold</em></div>
+        <div><b>SLIDE</b><span>滑动出线</span><em>接住 Flick</em></div>
+      </div>
+    </main>
+
+    <footer class="menu-foot">
+      <div class="keys"><kbd>D</kbd><kbd>F</kbd><kbd>J</kbd><kbd>K</kbd><span class="desktop-tip">键盘 / 点击 / 触屏</span><span class="touch-tip">触屏：点击判定线击打，按住长条，滑动接 Flick</span></div>
+      <div class="foot-note">全部音乐由 DSH SOUND LAB 为本次作品原创 · 90s × 5</div>
+    </footer>
+  </div>
+
+  <!-- ======================= DIFFICULTY SELECT ======================= -->
+  <div id="diffOverlay" class="overlay hidden">
+    <div class="diff-panel">
+      <button id="diffClose" class="close-btn" aria-label="关闭">✕</button>
+      <div class="diff-cover-wrap">
+        <img id="diffCover" class="diff-cover" alt="" />
+        <div class="diff-cover-shade"></div>
+        <div id="diffTag" class="diff-tag">DRUM & BASS</div>
+      </div>
+      <div class="diff-info">
+        <div id="diffTitle" class="diff-title">NEON PULSE</div>
+        <div id="diffArtist" class="diff-artist">DSH SOUND LAB</div>
+        <p id="diffDesc" class="diff-desc"></p>
+        <div class="diff-meta">
+          <div><label>BPM</label><b id="diffBpm">176</b></div>
+          <div><label>LENGTH</label><b>1:30</b></div>
+          <div><label>NOTES</label><b id="diffNotes">—</b></div>
+        </div>
+        <div class="diff-buttons">
+          <button id="btnHD" class="diff-btn hd"><span>HD</span><b>10</b><i id="hdCount"></i></button>
+          <button id="btnIN" class="diff-btn in"><span>IN</span><b>14</b><i id="inCount"></i></button>
+        </div>
+        <div class="diff-tip">选择难度开始 · 建议戴上耳机</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================= PAUSE ======================= -->
+  <div id="pauseOverlay" class="overlay hidden">
+    <div class="pause-panel">
+      <div class="pause-title">PAUSED</div>
+      <div class="pause-sub">暂停中</div>
+      <button id="btnResume" class="primary-btn">继续游戏</button>
+      <button id="btnPauseSettings" class="ghost-btn wide">设置</button>
+      <button id="btnRestart" class="ghost-btn wide">重新开始</button>
+      <button id="btnQuit" class="ghost-btn wide">返回选曲</button>
+    </div>
+  </div>
+
+  <!-- ======================= RESULTS ======================= -->
+  <div id="resultOverlay" class="overlay hidden">
+    <div class="result-panel">
+      <div class="result-left">
+        <div id="resultRank" class="result-rank">S</div>
+        <div class="result-rank-sub">RANK</div>
+        <div class="result-acc-wrap"><span id="resultAcc">100.00</span><small>%</small></div>
+      </div>
+      <div class="result-right">
+        <div class="result-song"><b id="resultTitle">NEON PULSE</b><span id="resultDiff">IN 14</span></div>
+        <div class="result-score" id="resultScore">1000000</div>
+        <div class="result-record" id="resultRecord"></div>
+        <div class="result-stats" id="resultStats"></div>
+        <div class="result-buttons">
+          <button id="btnAgain" class="primary-btn">再来一次</button>
+          <button id="btnBack" class="ghost-btn">返回选曲</button>
+        </div>
+      </div>
+      <div class="result-bgmark" id="resultBgmark">NEON PULSE</div>
+    </div>
+  </div>
+
+  <!-- ======================= SETTINGS ======================= -->
+  <div id="settingsOverlay" class="overlay hidden">
+    <div class="settings-panel">
+      <button id="settingsClose" class="close-btn" aria-label="关闭">✕</button>
+      <h2>SETTINGS <small>设置</small></h2>
+      <div class="setting-row">
+        <label>音乐音量</label>
+        <input id="setVolume" type="range" min="0" max="100" value="80" />
+        <span id="setVolumeVal">80</span>
+      </div>
+      <div class="setting-row">
+        <label>打击音</label>
+        <input id="setSfx" type="range" min="0" max="100" value="70" />
+        <span id="setSfxVal">70</span>
+      </div>
+      <div class="setting-row">
+        <label>判定偏移</label>
+        <input id="setOffset" type="range" min="-120" max="120" value="0" />
+        <span id="setOffsetVal">0 ms</span>
+      </div>
+      <div class="setting-row">
+        <label>自动演奏</label>
+        <button id="setAuto" class="toggle" aria-pressed="false"><i></i></button>
+        <span class="setting-note">演示 / 录制用</span>
+      </div>
+      <div class="setting-row">
+        <label>按键提示</label>
+        <button id="setHints" class="toggle on" aria-pressed="true"><i></i></button>
+        <span class="setting-note">画面上显示落点键位</span>
+      </div>
+      <div class="settings-keymap">
+        <div><kbd>D</kbd><span>左</span></div>
+        <div><kbd>F</kbd><span>左中</span></div>
+        <div><kbd>J</kbd><span>右中</span></div>
+        <div><kbd>K</kbd><span>右</span></div>
+        <div><kbd>ESC</kbd><span>暂停</span></div>
+        <div><kbd>R</kbd><span>重开</span></div>
+      </div>
+      <p class="settings-tip">判定：Perfect ±45ms · Good ±90ms · Bad ±140ms。手机可直接触屏，滑动可接 Flick。</p>
+    </div>
+  </div>
+</div>
+
+<script src="js/track-meta.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

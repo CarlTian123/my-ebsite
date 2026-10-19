@@ -1,0 +1,246 @@
+/* ============================================================================
+   NEXUS · 设计令牌 (Design Tokens)
+   所有颜色 / 字号 / 间距 / 圆角 / 阴影 / 动效曲线 的唯一来源。
+   任何组件不得写死数值，必须引用这里的变量。
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- 字体 */
+@font-face {
+  font-family: "Inter var";
+  src: url("../fonts/inter-var.woff2") format("woff2-variations"),
+       url("../fonts/inter-var.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+  font-style: normal;
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("../fonts/noto-sans-sc-400.woff2") format("woff2");
+  font-weight: 400; font-display: swap;
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("../fonts/noto-sans-sc-600.woff2") format("woff2");
+  font-weight: 600; font-display: swap;
+}
+@font-face {
+  font-family: "Noto Sans SC";
+  src: url("../fonts/noto-sans-sc-700.woff2") format("woff2");
+  font-weight: 700; font-display: swap;
+}
+
+:root {
+  /* ------------------------------------------------------------ 排版 */
+  --font-sans: "Inter var", "Inter", "Noto Sans SC", -apple-system,
+               BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+               "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, "Menlo", monospace;
+
+  --fs-display: clamp(2.7rem, 6.2vw, 6rem);
+  --fs-h1: clamp(1.9rem, 3.2vw, 3rem);
+  --fs-h2: clamp(1.3rem, 1.9vw, 1.7rem);
+  --fs-h3: 1.1rem;
+  --fs-body: 0.95rem;
+  --fs-sm: 0.84rem;
+  --fs-xs: 0.74rem;
+  --fs-2xs: 0.68rem;
+
+  --lh-display: 0.94;
+  --lh-tight: 1.16;
+  --lh-body: 1.68;
+
+  --ls-display: -0.035em;
+  --ls-tight: -0.015em;
+  --ls-wide: 0.14em;
+  --ls-eyebrow: 0.22em;
+
+  /* ------------------------------------------------------------ 间距 (4px 基线) */
+  --sp-1: 4px;   --sp-2: 8px;   --sp-3: 12px;  --sp-4: 16px;
+  --sp-5: 20px;  --sp-6: 24px;  --sp-7: 32px;  --sp-8: 40px;
+  --sp-9: 56px;  --sp-10: 72px; --sp-11: 96px; --sp-12: 128px;
+
+  /* ------------------------------------------------------------ 圆角 */
+  --r-xs: 6px; --r-sm: 10px; --r-md: 14px; --r-lg: 20px;
+  --r-xl: 28px; --r-full: 999px;
+
+  /* ------------------------------------------------------------ 线宽 */
+  --hair: 1px;
+  --lw-logo: 6;
+
+  /* ------------------------------------------------------------ 布局 */
+  --page-max: 1520px;
+  --gutter: clamp(20px, 4.2vw, 60px);
+  --nav-h: 74px;
+
+  /* ------------------------------------------------------------ 动效 */
+  --dur-1: 120ms;   /* 快速反馈 */
+  --dur-2: 200ms;   /* 普通交互 */
+  --dur-3: 280ms;
+  --dur-4: 380ms;   /* 面板与浮层 */
+  --dur-5: 560ms;   /* 复杂转场 */
+  --dur-6: 760ms;
+  --dur-brand: 1800ms;
+
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-exit:  cubic-bezier(0.4, 0, 1, 1);
+  --ease-press: cubic-bezier(0.2, 0, 0.2, 1);
+  --ease-space: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-line:  cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* ------------------------------------------------------------ 层级 */
+  --z-bg: 0;
+  --z-content: 10;
+  --z-nav: 40;
+  --z-overlay: 60;
+  --z-modal: 70;
+  --z-toast: 80;
+  --z-launch: 90;
+  --z-debug: 100;
+
+  /* ------------------------------------------------------------ 形状 */
+  --nav-blur: 22px;
+  --hero-blur: 40px;
+}
+
+/* ============================================================================
+   深色主题（默认 · 主视觉基准）
+   ========================================================================== */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #080a0c;
+  --bg-deep: #05070a;
+  --surface-1: #0c1013;
+  --surface-2: #101419;
+  --surface-3: #181e24;
+  --surface-4: #242b32;
+  --surface-5: #2d353d;
+
+  --text: #e8ecef;
+  --text-2: #9aa5af;
+  --text-3: #69737d;
+  --text-on-accent: #0a0d06;
+
+  --accent: #c7ff52;
+  --accent-soft: rgba(199, 255, 82, 0.14);
+  --accent-line: rgba(199, 255, 82, 0.34);
+  --accent-text: #c7ff52;
+
+  --line: rgba(232, 236, 239, 0.075);
+  --line-strong: rgba(232, 236, 239, 0.16);
+  --line-accent: rgba(199, 255, 82, 0.4);
+
+  /* 环境光：冷白 / 暗青 / 低饱薄荷 —— 只用这三种 */
+  --glow-cool: rgba(159, 216, 232, 0.13);
+  --glow-teal: rgba(31, 74, 84, 0.34);
+  --glow-mint: rgba(143, 217, 182, 0.09);
+  --glow-accent: rgba(199, 255, 82, 0.1);
+
+  --scrim: rgba(8, 10, 12, 0.72);
+  --scrim-strong: rgba(6, 8, 10, 0.9);
+
+  --card-top: rgba(36, 43, 50, 0.55);
+  --card-bottom: rgba(12, 16, 19, 0.92);
+  --nav-bg: rgba(8, 10, 12, 0.62);
+  --nav-bg-scrolled: rgba(8, 10, 12, 0.86);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.4), 0 18px 44px -20px rgba(0, 0, 0, 0.8);
+  --shadow-3: 0 4px 10px rgba(0, 0, 0, 0.4), 0 34px 70px -28px rgba(0, 0, 0, 0.9);
+  --shadow-inset: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-glow: 0 0 0 1px var(--accent-line), 0 0 32px -8px rgba(199, 255, 82, 0.35);
+
+  --grain-opacity: 0.05;
+  --vignette: 0.72;
+  --img-bright: 0.94;
+  --img-sat: 1;
+}
+
+/* ============================================================================
+   浅色主题（第二套完整配色 · 同一套令牌语义）
+   ========================================================================== */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #eff1ec;
+  --bg-deep: #e6e9e2;
+  --surface-1: #f8f9f5;
+  --surface-2: #ffffff;
+  --surface-3: #eef0ea;
+  --surface-4: #e3e7df;
+  --surface-5: #d7dcd2;
+
+  --text: #12171a;
+  --text-2: #4d5760;
+  --text-3: #7d878f;
+  --text-on-accent: #0a0d06;
+
+  --accent: #c7ff52;
+  --accent-soft: rgba(110, 143, 0, 0.1);
+  --accent-line: rgba(110, 143, 0, 0.34);
+  --accent-text: #4f6a00;
+
+  --line: rgba(12, 18, 22, 0.1);
+  --line-strong: rgba(12, 18, 22, 0.18);
+  --line-accent: rgba(110, 143, 0, 0.42);
+
+  --glow-cool: rgba(120, 168, 184, 0.16);
+  --glow-teal: rgba(140, 190, 200, 0.2);
+  --glow-mint: rgba(143, 200, 170, 0.16);
+  --glow-accent: rgba(199, 255, 82, 0.24);
+
+  --scrim: rgba(239, 241, 236, 0.7);
+  --scrim-strong: rgba(239, 241, 236, 0.9);
+
+  --card-top: rgba(255, 255, 255, 0.85);
+  --card-bottom: rgba(248, 249, 245, 0.96);
+  --nav-bg: rgba(239, 241, 236, 0.66);
+  --nav-bg-scrolled: rgba(239, 241, 236, 0.9);
+
+  --shadow-1: 0 1px 2px rgba(18, 24, 28, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --shadow-2: 0 2px 6px rgba(18, 24, 28, 0.06), 0 18px 40px -22px rgba(18, 24, 28, 0.28);
+  --shadow-3: 0 4px 10px rgba(18, 24, 28, 0.07), 0 34px 64px -30px rgba(18, 24, 28, 0.32);
+  --shadow-inset: inset 0 0 0 1px rgba(18, 24, 28, 0.04);
+  --shadow-glow: 0 0 0 1px var(--accent-line), 0 0 30px -10px rgba(110, 143, 0, 0.4);
+
+  --grain-opacity: 0.035;
+  --vignette: 0.22;
+  --img-bright: 1;
+  --img-sat: 0.98;
+}
+
+/* 跟随系统（选择「自动」时） */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) {
+    color-scheme: light;
+    --bg: #eff1ec; --bg-deep: #e6e9e2;
+    --surface-1: #f8f9f5; --surface-2: #ffffff;
+    --surface-3: #eef0ea; --surface-4: #e3e7df; --surface-5: #d7dcd2;
+    --text: #12171a; --text-2: #4d5760; --text-3: #7d878f;
+    --accent-soft: rgba(110, 143, 0, 0.1);
+    --accent-line: rgba(110, 143, 0, 0.34);
+    --accent-text: #4f6a00;
+    --line: rgba(12, 18, 22, 0.1); --line-strong: rgba(12, 18, 22, 0.18);
+    --line-accent: rgba(110, 143, 0, 0.42);
+    --glow-cool: rgba(120, 168, 184, 0.16);
+    --glow-teal: rgba(140, 190, 200, 0.2);
+    --glow-mint: rgba(143, 200, 170, 0.16);
+    --glow-accent: rgba(199, 255, 82, 0.24);
+    --scrim: rgba(239, 241, 236, 0.7);
+    --scrim-strong: rgba(239, 241, 236, 0.9);
+    --card-top: rgba(255, 255, 255, 0.85);
+    --card-bottom: rgba(248, 249, 245, 0.96);
+    --nav-bg: rgba(239, 241, 236, 0.66);
+    --nav-bg-scrolled: rgba(239, 241, 236, 0.9);
+    --shadow-1: 0 1px 2px rgba(18, 24, 28, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    --shadow-2: 0 2px 6px rgba(18, 24, 28, 0.06), 0 18px 40px -22px rgba(18, 24, 28, 0.28);
+    --shadow-3: 0 4px 10px rgba(18, 24, 28, 0.07), 0 34px 64px -30px rgba(18, 24, 28, 0.32);
+    --shadow-inset: inset 0 0 0 1px rgba(18, 24, 28, 0.04);
+    --shadow-glow: 0 0 0 1px var(--accent-line), 0 0 30px -10px rgba(110, 143, 0, 0.4);
+    --grain-opacity: 0.035;
+    --vignette: 0.22;
+    --img-bright: 1;
+    --img-sat: 0.98;
+  }
+}

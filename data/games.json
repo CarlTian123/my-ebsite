@@ -1,0 +1,293 @@
+{
+  "site": {
+    "name": "NEXUS",
+    "fullName": "NEXUS — Ultimate Web Gaming Platform",
+    "studio": "Hello Games Studio",
+    "engine": "Byebye Games Engine v1.0",
+    "engineNote": "启动过渡与品牌呈现层。游戏本身仍是各自独立的实现。",
+    "tagline": "三款原创游戏，一个入口。",
+    "intro": "NEXUS 是 Hello Games Studio 自研游戏在网页上的统一入口。所有游戏都在浏览器里原生运行，不需要安装，进度保存在本机。",
+    "brandLine": "Built by Hello Games Studio · Powered by Byebye Games Engine v1.0"
+  },
+  "games": [
+    {
+      "slug": "phi-neon",
+      "order": 1,
+      "featured": true,
+      "title": "PHI:NEON",
+      "titleZh": "霓虹判型",
+      "subtitle": "原创节奏游戏",
+      "tagline": "在霓虹的判定线上，把每一个音符按住。",
+      "summary": "四轨下落式节奏游戏。判定线是整块画面的分界，音符从上方压下来，Perfect 与 Good 之间只有 45 毫秒的余地。曲目全部为本站原创合成音乐，每首配独立封面与难度谱面。",
+      "entry": "games/phi-neon/index.html",
+      "cover": "assets/img/cover/phi-neon.webp",
+      "thumb": "assets/img/thumb/phi-neon.webp",
+      "hero": "assets/img/hero/phi-neon.webp",
+      "genres": [
+        "节奏",
+        "音乐"
+      ],
+      "aurora": [
+        "rgba(159,216,232,0.14)",
+        "rgba(31,74,84,0.30)"
+      ],
+      "facts": [
+        {
+          "k": "曲目",
+          "v": "5 首"
+        },
+        {
+          "k": "难度",
+          "v": "HD / IN"
+        },
+        {
+          "k": "单曲时长",
+          "v": "90 秒"
+        },
+        {
+          "k": "存档",
+          "v": "本机"
+        }
+      ],
+      "meta": [
+        "节奏",
+        "5 首原创曲目",
+        "HD 9–10 / IN 13–15"
+      ],
+      "howToPlay": [
+        "音符沿四条轨道下落，抵达判定线时按下对应按键。",
+        "长条音符要按住到末尾，滑键音符横向划过即可，闪烁音符需要甩动。",
+        "判定窗口：Perfect ±45ms，Good ±90ms，Bad ±140ms。",
+        "满分 1,000,000 = 900,000 × 准确率 + 100,000 × 最大连击占比。"
+      ],
+      "controls": [
+        {
+          "keys": [
+            "D",
+            "F",
+            "J",
+            "K"
+          ],
+          "desc": "四轨判定"
+        },
+        {
+          "keys": [
+            "←",
+            "→"
+          ],
+          "desc": "滑键方向"
+        },
+        {
+          "keys": [
+            "Esc"
+          ],
+          "desc": "暂停"
+        },
+        {
+          "keys": [
+            "R"
+          ],
+          "desc": "重新开始"
+        }
+      ],
+      "tags": [
+        "键盘",
+        "触屏",
+        "本地存档"
+      ],
+      "note": "曲目与谱面均由本站原创生成，无外部素材。",
+      "heroBright": 0.6
+    },
+    {
+      "slug": "blue-fish",
+      "order": 2,
+      "featured": true,
+      "title": "蓝鱼枪战",
+      "titleZh": "深海火拼",
+      "subtitle": "深海射击 · 波次生存",
+      "tagline": "一条蓝鱼，七把枪，八面来敌。",
+      "summary": "俯视角深海射击。红鱼按波次围攻，每清空一波有 12 秒整备时间买补给、拿强化；每击杀 20 条升一级，从三张强化卡里选一张。每 5 波，深海鲨王登场。",
+      "entry": "games/blue-fish/index.html",
+      "cover": "assets/img/cover/blue-fish.webp",
+      "thumb": "assets/img/thumb/blue-fish.webp",
+      "hero": "assets/img/hero/blue-fish.webp",
+      "genres": [
+        "射击",
+        "动作"
+      ],
+      "aurora": [
+        "rgba(80,170,190,0.16)",
+        "rgba(20,60,72,0.34)"
+      ],
+      "facts": [
+        {
+          "k": "武器",
+          "v": "7 种枪械"
+        },
+        {
+          "k": "难度",
+          "v": "轻松 / 普通 / 狂暴"
+        },
+        {
+          "k": "生命",
+          "v": "20 点，倒下 2.6 秒复活"
+        },
+        {
+          "k": "存档",
+          "v": "本机"
+        }
+      ],
+      "meta": [
+        "射击",
+        "波次生存",
+        "3 种难度"
+      ],
+      "howToPlay": [
+        "打 3 枪干掉一条红鱼。你只有 20 点生命，倒下后 2.6 秒原地满血复活，武器与强化卡保留。",
+        "红鱼按波次来袭。清空一波进入 12 秒整备阶段：买补给、拿强化；提前出击再得 +3 金币。",
+        "每击杀 20 条红鱼升一级，从 3 张强化卡里选 1 张。",
+        "每 5 波，深海鲨王登场。"
+      ],
+      "controls": [
+        {
+          "keys": [
+            "W",
+            "A",
+            "S",
+            "D"
+          ],
+          "desc": "游动"
+        },
+        {
+          "keys": [
+            "鼠标"
+          ],
+          "desc": "瞄准"
+        },
+        {
+          "keys": [
+            "左键",
+            "空格"
+          ],
+          "desc": "开火"
+        },
+        {
+          "keys": [
+            "Shift",
+            "右键"
+          ],
+          "desc": "冲刺"
+        },
+        {
+          "keys": [
+            "1–7",
+            "Q",
+            "E"
+          ],
+          "desc": "换枪"
+        },
+        {
+          "keys": [
+            "P",
+            "Esc"
+          ],
+          "desc": "暂停"
+        }
+      ],
+      "tags": [
+        "键盘",
+        "鼠标",
+        "触屏",
+        "本地存档"
+      ],
+      "note": "该作品此前已在 NEXUS 域名下单独上线，本次整体迁入平台入口。",
+      "heroBright": 0.92
+    },
+    {
+      "slug": "lantern",
+      "order": 3,
+      "featured": true,
+      "title": "提灯",
+      "titleZh": "一束光走进纸里",
+      "subtitle": "纸面解谜 · 光的折射",
+      "tagline": "一束光走在纸上。转动镜子，让它落进灯里。",
+      "summary": "纸面上的光路解谜。转动 \\ 与 / 两种镜子，把光源的光反射进提灯。没有时间限制，没有失败——三卷共三十六盏，每一趟取十盏，越往后越需要先在纸上推演。",
+      "entry": "games/lantern/index.html",
+      "cover": "assets/img/cover/lantern.webp",
+      "thumb": "assets/img/thumb/lantern.webp",
+      "hero": "assets/img/hero/lantern.webp",
+      "genres": [
+        "解谜",
+        "休闲"
+      ],
+      "aurora": [
+        "rgba(143,217,182,0.11)",
+        "rgba(60,80,60,0.26)"
+      ],
+      "facts": [
+        {
+          "k": "灯盏",
+          "v": "36 · 三卷"
+        },
+        {
+          "k": "一趟",
+          "v": "10 盏"
+        },
+        {
+          "k": "失败",
+          "v": "无"
+        },
+        {
+          "k": "存档",
+          "v": "本机"
+        }
+      ],
+      "meta": [
+        "解谜",
+        "36 盏",
+        "无失败"
+      ],
+      "howToPlay": [
+        "点击镜子可以旋转，\\ 与 / 两种朝向改变光的行进方向。",
+        "把光从光源一路反射进提灯，这一盏就算点亮。",
+        "没有时间限制，也没有失败判定，可以慢慢试。",
+        "灯盏分三卷：初灯、夜行、长明，越往后越需要先在纸上推演。",
+        "猜错了不要紧：Z 撤销一步，R 重置这一盏。"
+      ],
+      "controls": [
+        {
+          "keys": [
+            "点击 / 轻点"
+          ],
+          "desc": "旋转镜子"
+        },
+        {
+          "keys": [
+            "方向键 + 回车"
+          ],
+          "desc": "键盘游玩"
+        },
+        {
+          "keys": [
+            "Esc"
+          ],
+          "desc": "回到关卡图鉴"
+        },
+        {
+          "keys": [
+            "Z / R"
+          ],
+          "desc": "撤销 / 重置"
+        }
+      ],
+      "tags": [
+        "鼠标",
+        "触屏",
+        "键盘",
+        "本地存档"
+      ],
+      "note": "单文件实现，零外部依赖；进度存在本机浏览器里。",
+      "heroBright": 0.5
+    }
+  ]
+}

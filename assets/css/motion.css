@@ -1,0 +1,131 @@
+/* ============================================================================
+   NEXUS · 动效层
+   统一起始/结束状态、入场编排、以及 prefers-reduced-motion 的收束规则。
+   规则：进入＝加速后自然减速（ease-enter），离开＝快速收束（ease-exit），
+        按压＝短促（ease-press + 90–120ms）。
+   ========================================================================== */
+
+/* 入场编排：由 JS 依序加 .is-in，配合 --d 错峰 */
+.rise { opacity: 0; transform: translateY(14px); }
+.rise.is-in {
+  animation: rise 640ms var(--ease-enter) both;
+  animation-delay: var(--d, 0ms);
+}
+@keyframes rise {
+  to { opacity: 1; transform: none; }
+}
+
+.fade.is-in { animation: fade-in 460ms var(--ease-enter) both; animation-delay: var(--d, 0ms); }
+
+/* 页面转场：新视图入场时，旧视图不参与（直接替换），避免整页闪白 */
+.page > .view { animation: view-in 380ms var(--ease-enter) both; }
+
+/* 共享元素占位：从卡片位置开始的遮罩由 JS 内联控制，这里只兜底 */
+.view-transition-cover {
+  position: fixed;
+  z-index: var(--z-overlay);
+  pointer-events: none;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  will-change: transform, opacity;
+}
+
+/* 骨架屏呼吸（只在真正等待时出现，不做常驻装饰） */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-3);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+  transform: translateX(-100%);
+  animation: sheen 1.4s var(--ease-space) infinite;
+}
+@keyframes sheen { to { transform: translateX(100%); } }
+
+/* 品牌 Logo 描线（静态版按需触发，也用同一套类） */
+.logo-draw path,
+.logo-draw circle,
+.logo-draw rect {
+  stroke-dasharray: var(--len, 260);
+  stroke-dashoffset: var(--len, 260);
+  animation: logo-draw var(--draw, 760ms) var(--ease-line) forwards;
+  animation-delay: var(--delay, 0ms);
+}
+@keyframes logo-draw { to { stroke-dashoffset: 0; } }
+
+/* Lightbox / 面板从触发点展开（用于详情页封面放大等） */
+.scale-in {
+  animation: scale-in var(--dur-3) var(--ease-enter) both;
+  transform-origin: var(--ox, 50%) var(--oy, 50%);
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.94); }
+}
+
+/* ============================================================================
+   prefers-reduced-motion：保留必要反馈，去掉空间位移与视差
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .bg-wash, .bg-aurora, .bg-field {
+    transform: none !important;
+    transition: opacity 1ms !important;
+  }
+
+  .card, .card:hover {
+    --rx: 0deg !important;
+    --ry: 0deg !important;
+    --lift: 0px !important;
+    transform: none !important;
+  }
+  .card:hover .card__img { transform: none !important; }
+
+  .hero__art { transform: none !important; }
+
+  .stage, .stage.is-in, .rise, .rise.is-in {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    animation: none !important;
+  }
+
+  .launch__door { transition: none !important; }
+  .logo-draw path, .logo-draw circle, .logo-draw rect {
+    stroke-dashoffset: 0 !important;
+    animation: none !important;
+  }
+  .skeleton::after { animation: none !important; }
+}
+
+/* 用户在设置里强制"减少动效"时，等价于系统级 reduce */
+html[data-motion="reduced"] { scroll-behavior: auto; }
+html[data-motion="reduced"] *,
+html[data-motion="reduced"] *::before,
+html[data-motion="reduced"] *::after {
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+}
+html[data-motion="reduced"] .bg-wash,
+html[data-motion="reduced"] .bg-aurora,
+html[data-motion="reduced"] .bg-field { transform: none !important; }
+html[data-motion="reduced"] .card,
+html[data-motion="reduced"] .card:hover { transform: none !important; }
+html[data-motion="reduced"] .hero__art { transform: none !important; }
+html[data-motion="reduced"] .stage,
+html[data-motion="reduced"] .rise {
+  opacity: 1 !important; transform: none !important; filter: none !important;
+  animation: none !important;
+}

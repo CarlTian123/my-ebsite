@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" fill="none" role="img" aria-label="Hello Games Studio (accent)"><title>Hello Games Studio (accent)</title><g color="#E8ECEF"><g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="butt">
+    <path d="M98.042 47.639 A40 40 0 1 1 72.361 21.958"/>
+  </g>
+  <circle cx="60" cy="60" r="17.5" fill="none" stroke="currentColor" stroke-width="1.7" opacity="0.34"/>
+  <circle cx="60" cy="60" r="10.5" fill="var(--nx-mark-accent, currentColor)"/></g></svg>

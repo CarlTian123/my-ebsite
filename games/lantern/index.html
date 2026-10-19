@@ -1,0 +1,1806 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#efe2cb">
+<title>提灯</title>
+<link rel="icon" href="data:,">
+<style>
+  :root{ --sab: env(safe-area-inset-bottom, 0px); }
+  html,body{margin:0;height:100%;overflow:hidden;background:#efe2cb;}
+  canvas{display:block;width:100vw;height:100vh;touch-action:manipulation;
+    -webkit-tap-highlight-color:transparent;outline:none;}
+  .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+    clip:rect(0 0 0 0);white-space:nowrap;border:0}
+</style>
+</head>
+<body>
+<canvas id="c" tabindex="0" aria-label="提灯：转动镜子，把光反射进灯里"></canvas>
+<p class="sr">提灯是一个光的解谜游戏。方向键选择镜子，空格或回车转动；轻点镜子也可以转动。Z 撤销，R 重置。</p>
+<script>
+"use strict";
+/* ============================================================================
+   提灯 · Lantern
+   单文件、零外部依赖（不得引用任何外部 js / css / 字体 / 图片）。
+   结构：
+     01 工具        02 纸纹        03 声音        04 关卡数据与构建
+     05 光学（追踪） 06 进度存储    07 状态与布局   08 绘制基础
+     09 场景与界面  10 输入        11 主循环
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- 01 工具 */
+const cvs = document.getElementById('c');
+const ctx = cvs.getContext('2d');
+let W = 0, H = 0, DPR = 1, SAFE_B = 0;
+
+const TAU = Math.PI * 2;
+const INK      = '#3b3128';
+const INK_SOFT = 'rgba(59,49,40,0.42)';
+const GRID     = 'rgba(101,82,60,0.17)';
+const WARM     = '#c1823f';
+const LAMPLIT  = '#ffbe6b';
+const CNUM     = ['一','二','三','四','五','六','七','八','九','十'];
+
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const clamp = (v,a,b)=>v<a?a:v>b?b:v;
+const lerp  = (a,b,t)=>a+(b-a)*t;
+const ease  = t=>1-Math.pow(1-t,3);
+
+/* 圆角矩形路径（不依赖 ctx.roundRect，旧浏览器也能画） */
+function rrPath(x,y,w,h,r){
+  const q = Math.min(r, w/2, h/2);
+  ctx.beginPath();
+  ctx.moveTo(x+q,y);
+  ctx.lineTo(x+w-q,y); ctx.quadraticCurveTo(x+w,y, x+w,y+q);
+  ctx.lineTo(x+w,y+h-q); ctx.quadraticCurveTo(x+w,y+h, x+w-q,y+h);
+  ctx.lineTo(x+q,y+h); ctx.quadraticCurveTo(x,y+h, x,y+h-q);
+  ctx.lineTo(x,y+q); ctx.quadraticCurveTo(x,y, x+q,y);
+  ctx.closePath();
+}
+
+/* ---------------------------------------------------------------- 02 纸纹 */
+const paper = document.createElement('canvas');
+function buildPaper(){
+  const S = 1024;
+  paper.width = paper.height = S;
+  const p = paper.getContext('2d');
+  p.fillStyle = '#f3e7d2';
+  p.fillRect(0,0,S,S);
+  // 隐约的暖色晕染
+  const g = p.createRadialGradient(S*0.42,S*0.34,S*0.05,S*0.5,S*0.5,S*0.78);
+  g.addColorStop(0,'rgba(255,252,243,0.85)');
+  g.addColorStop(0.55,'rgba(243,231,210,0.12)');
+  g.addColorStop(1,'rgba(196,164,120,0.30)');
+  p.fillStyle = g; p.fillRect(0,0,S,S);
+  // 纸纤维颗粒
+  const rnd = mulberry32(2024);
+  for(let i=0;i<26000;i++){
+    const x = rnd()*S, y = rnd()*S, a = rnd()*0.05+0.005;
+    p.fillStyle = rnd()>0.52 ? 'rgba(120,92,60,'+a+')' : 'rgba(255,252,240,'+a*1.6+')';
+    p.fillRect(x,y, 1+rnd()*1.4, 1+rnd()*1.4);
+  }
+  // 长纤维
+  p.lineWidth = 0.6;
+  for(let i=0;i<220;i++){
+    const x = rnd()*S, y = rnd()*S, len = 20+rnd()*90, ang = rnd()*TAU;
+    p.strokeStyle = 'rgba(140,110,74,'+(0.02+rnd()*0.045)+')';
+    p.beginPath(); p.moveTo(x,y);
+    p.quadraticCurveTo(x+Math.cos(ang)*len*0.5+rnd()*8, y+Math.sin(ang)*len*0.5+rnd()*8,
+                       x+Math.cos(ang)*len, y+Math.sin(ang)*len);
+    p.stroke();
+  }
+}
+buildPaper();
+
+/* ---------------------------------------------------------------- 03 声音 */
+let AC = null;
+function ac(){
+  if(!AC){ try{ AC = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ AC = null; } }
+  return AC;
+}
+function pluck(freq, dur, gain, type){
+  const a = ac(); if(!a) return;
+  const o = a.createOscillator(), g = a.createGain(), f = a.createBiquadFilter();
+  o.type = type||'triangle'; o.frequency.value = freq;
+  f.type = 'lowpass'; f.frequency.value = 2600;
+  g.gain.value = 0;
+  o.connect(f); f.connect(g); g.connect(a.destination);
+  const t = a.currentTime;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(gain, t+0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  o.start(t); o.stop(t+dur+0.02);
+}
+const sfx = {
+  turn(){ pluck(783.99, 0.12, 0.028, 'sine'); },
+  stone(){
+    pluck(392.00, 0.55, 0.040, 'sine');
+    setTimeout(()=>pluck(587.33, 0.7, 0.032, 'sine'), 70);
+  },
+  solve(){
+    [523.25, 659.25, 783.99, 1046.50].forEach((f,i)=>
+      setTimeout(()=>pluck(f, 1.5, 0.042, 'sine'), i*105));
+    setTimeout(()=>pluck(261.63, 2.2, 0.030, 'sine'), 40);
+  }
+};
+
+/* ---------------------------------------------------------------- 04 关卡数据 */
+/* 方向字符 → 向量。屏幕坐标 y 向下。 */
+const DIRC = { R:[1,0], D:[0,1], L:[-1,0], U:[0,-1] };
+
+/* 45° 镜面反射：'/' 与 '\' 是两种朝向的镜面 */
+function reflect(m, d){ return m === '/' ? [-d[1], -d[0]] : [d[1], d[0]]; }
+function otherMirror(m){ return m === '/' ? '\\' : '/'; }
+
+/* 三卷，每卷十二盏。一轮「闯关」从三卷里各抽 3 / 4 / 3 盏，
+   按卷序走完，难度自然递增；「图鉴」里可以按卷翻看、单挑。 */
+const TIERS = [
+  { id:'t1', name:'初灯', note:'一束光，两三个弯' },
+  { id:'t2', name:'夜行', note:'石钮、分水、钉镜' },
+  { id:'t3', name:'长明', note:'机关叠在一起' }
+];
+
+/* 每关：starts 光源 / lamps 灯（全部点亮即通关）/ mirrors 可转镜子（sol 为设计解）/
+   locks 钉死的镜子（不可转）/ gates 闸镜（有石钮点亮前不反光）/
+   splitters 分水镜（一束直行 + 一束折出）/ switches 石钮 / walls 墙 */
+/* ---- 手写的十盏（第一卷到第三卷的老关卡） ---- */
+const HAND = [
+  { cols:5, rows:5, title:'一盏灯', hint:'轻点镜子，让光转弯。', line:'灯亮了。',
+    starts:[{c:0,r:2,dir:'R'}], lamps:[[2,0]],
+    mirrors:[{c:2,r:2,sol:'/',init:'\\'}] },
+
+  { cols:6, rows:5, title:'两个弯', hint:'两块镜子，两条弯。', line:'两个弯，绕过去了。',
+    starts:[{c:0,r:4,dir:'R'}], lamps:[[5,1]],
+    mirrors:[{c:1,r:4,sol:'/',init:'\\'},{c:1,r:1,sol:'/',init:'\\'},{c:3,r:2}] },
+
+  { cols:6, rows:6, title:'绕过墙', hint:'墙会挡住光，绕开它。', line:'墙没挡住。',
+    starts:[{c:0,r:0,dir:'D'}], lamps:[[5,1]],
+    mirrors:[{c:0,r:3,sol:'\\',init:'\\'},{c:3,r:3,sol:'/',init:'\\'},
+             {c:3,r:1,sol:'/',init:'\\'},{c:1,r:1},{c:4,r:4}],
+    walls:[[2,1],[5,4]] },
+
+  { cols:6, rows:6, title:'再远一点', hint:'路可以长一点。', line:'再远的路也走完了。',
+    starts:[{c:0,r:5,dir:'R'}], lamps:[[1,4]],
+    mirrors:[{c:2,r:5,sol:'/',init:'\\'},{c:2,r:2,sol:'/',init:'\\'},
+             {c:4,r:2,sol:'\\',init:'/'},{c:4,r:4,sol:'/',init:'\\'},
+             {c:5,r:1},{c:0,r:3}],
+    walls:[[1,2],[3,3],[5,3]] },
+
+  { cols:7, rows:6, title:'长夜过半', hint:'光走过的每块镜子都算数。', line:'长夜过半，灯还亮着。',
+    starts:[{c:0,r:1,dir:'R'}], lamps:[[3,1]],
+    mirrors:[{c:2,r:1,sol:'\\',init:'/'},{c:2,r:4,sol:'\\',init:'/'},
+             {c:5,r:4,sol:'/',init:'/'},{c:5,r:1,sol:'\\',init:'/'},
+             {c:4,r:2},{c:1,r:3},{c:6,r:3}],
+    walls:[[3,2],[4,5]] },
+
+  { cols:7, rows:7, title:'提灯回来', hint:'六块镜子，一路光。', line:'六面镜子都记得光。',
+    starts:[{c:0,r:0,dir:'D'}], lamps:[[4,4]],
+    mirrors:[{c:0,r:3,sol:'\\',init:'/'},{c:3,r:3,sol:'\\',init:'/'},
+             {c:3,r:5,sol:'\\',init:'/'},{c:6,r:5,sol:'/',init:'\\'},
+             {c:6,r:2,sol:'\\',init:'/'},{c:4,r:2,sol:'/',init:'/'},
+             {c:2,r:0},{c:5,r:0},{c:1,r:5},{c:0,r:5}],
+    walls:[[2,4],[5,4],[1,1],[3,1]] },
+
+  /* 新机制一：石钮 + 闸镜。石钮被光穿过会“记住光”，闸镜才反光。 */
+  { cols:6, rows:6, title:'石钮', hint:'石钮被光照过，闸就开了。', line:'石钮记住了光。',
+    starts:[{c:0,r:1,dir:'R'}], lamps:[[0,2]],
+    mirrors:[{c:3,r:1,sol:'\\',init:'/'},{c:3,r:4,sol:'/',init:'\\'},
+             {c:1,r:2,sol:'\\',init:'/'},{c:5,r:2}],
+    gates:[{c:1,r:4,m:'\\'}],
+    switches:[[3,2]],
+    walls:[[2,2],[4,2]] },
+
+  /* 新机制二：分水镜 + 双灯。一束光直行，另一束折出，两盏都要亮。 */
+  { cols:6, rows:6, title:'分水', hint:'分水镜把一束光分成两束。', line:'一束分两束，两盏都亮了。',
+    starts:[{c:0,r:0,dir:'D'}], lamps:[[4,5],[5,4]],
+    mirrors:[{c:0,r:2,sol:'\\',init:'/'},{c:2,r:4,sol:'\\',init:'/'},
+             {c:3,r:0},{c:1,r:4}],
+    splitters:[{c:2,r:2,m:'\\'}],
+    locks:[{c:4,r:2,m:'\\'}],
+    walls:[[1,1],[3,1]] },
+
+  /* 新机制三：双光源 + 钉死的镜子。两束光各有各的灯。 */
+  { cols:7, rows:7, title:'双生', hint:'两束光，各有各的灯。钉住的镜子转不动。', line:'两束光，都回了家。',
+    starts:[{c:0,r:0,dir:'D'},{c:6,r:0,dir:'D'}], lamps:[[4,6],[2,0]],
+    mirrors:[{c:0,r:3,sol:'\\',init:'/'},{c:2,r:2,sol:'\\',init:'/'},
+             {c:3,r:0},{c:5,r:4},{c:1,r:5}],
+    locks:[{c:6,r:2,m:'/'},{c:4,r:3,m:'\\'}],
+    walls:[[1,1],[5,1],[2,4]] },
+
+  /* 终章：石钮 + 分水 + 闸镜 + 钉镜，全部收在一起。 */
+  { cols:7, rows:7, title:'长明', hint:'石钮、分水镜、钉住的镜子，都在这一关。', line:'十盏都亮了。',
+    starts:[{c:0,r:6,dir:'U'}], lamps:[[6,1],[4,3]],
+    mirrors:[{c:0,r:4,sol:'/',init:'\\'},{c:2,r:6,sol:'\\',init:'/'},
+             {c:3,r:2},{c:1,r:5},{c:5,r:0}],
+    splitters:[{c:2,r:4,m:'\\'}],
+    gates:[{c:4,r:6,m:'/'}],
+    switches:[[4,4]],
+    locks:[{c:6,r:4,m:'/'}],
+    walls:[[1,2],[5,2]] }
+];
+/* 老十关归卷：前四盏初灯，中间四盏夜行，最后两盏长明 */
+const HAND_TIER = [1,1,1,1,2,2,2,2,3,3];
+
+/* ---- 生成的二十六盏：同一条光路先走通，再摆镜子，每关都用引擎验证过唯一解 ---- */
+const GEN = [
+  { tier:1, cols:5, rows:5, title:"微光", hint:"转动镜子，让光拐个弯。", line:"灯亮了。", starts:[{c:0,r:2,dir:"R"}], lamps:[[4,3]], mirrors:[{c:1,r:2,sol:'\\',init:'\\'},{c:1,r:3,sol:'\\',init:'/'},{c:1,r:0}], walls:[[1,1]] },
+  { tier:1, cols:5, rows:5, title:"纸角", hint:"转动镜子，让光拐个弯。", line:"灯亮了。", starts:[{c:4,r:3,dir:"L"}], lamps:[[1,1]], mirrors:[{c:2,r:3,sol:'\\',init:'/'},{c:2,r:1,sol:'\\',init:'\\'},{c:1,r:0}], walls:[[3,1]] },
+  { tier:1, cols:5, rows:6, title:"回廊", hint:"转动镜子，让光拐个弯。", line:"灯亮了。", starts:[{c:2,r:5,dir:"U"}], lamps:[[0,0]], mirrors:[{c:2,r:2,sol:'\\',init:'/'},{c:0,r:2,sol:'\\',init:'/'},{c:1,r:1}], walls:[[1,5]] },
+  { tier:1, cols:5, rows:6, title:"细线", hint:"转动镜子，让光拐个弯。", line:"灯亮了。", starts:[{c:4,r:3,dir:"L"}], lamps:[[0,0]], mirrors:[{c:1,r:3,sol:'\\',init:'\\'},{c:1,r:0,sol:'\\',init:'/'},{c:3,r:4}], walls:[[0,3]] },
+  { tier:1, cols:5, rows:6, title:"窗棂", hint:"转动镜子，让光拐个弯。", line:"灯亮了。", starts:[{c:0,r:3,dir:"R"}], lamps:[[4,4]], mirrors:[{c:1,r:3,sol:'\\',init:'\\'},{c:1,r:4,sol:'\\',init:'/'},{c:1,r:0}], walls:[[1,1]] },
+  { tier:1, cols:5, rows:6, title:"半页", hint:"转动镜子，让光拐个弯。", line:"灯亮了。", starts:[{c:0,r:2,dir:"R"}], lamps:[[3,3]], mirrors:[{c:2,r:2,sol:'/',init:'\\'},{c:2,r:0,sol:'/',init:'\\'},{c:3,r:0,sol:'\\',init:'\\'},{c:0,r:4}], walls:[[0,3]] },
+  { tier:1, cols:6, rows:6, title:"檐前", hint:"转动镜子，让光拐个弯。", line:"灯亮了。", starts:[{c:5,r:3,dir:"L"}], lamps:[[1,0]], mirrors:[{c:2,r:3,sol:'\\',init:'\\'},{c:2,r:0,sol:'\\',init:'/'},{c:4,r:1}], walls:[[0,3]] },
+  { tier:1, cols:5, rows:5, title:"小径", hint:"转动镜子，让光拐个弯。", line:"灯亮了。", starts:[{c:2,r:0,dir:"D"}], lamps:[[1,3]], mirrors:[{c:2,r:2,sol:'\\',init:'/'},{c:3,r:2,sol:'\\',init:'/'},{c:3,r:3,sol:'/',init:'\\'},{c:1,r:1}], walls:[[3,4]] },
+  { tier:2, cols:6, rows:6, title:"石阶", hint:"钉住的镜子转不动。", line:"灯亮了。", starts:[{c:1,r:5,dir:"U"}], lamps:[[4,3]], mirrors:[{c:1,r:4,sol:'/',init:'\\'},{c:3,r:4,sol:'/',init:'\\'},{c:4,r:2,sol:'\\',init:'\\'},{c:0,r:1},{c:2,r:5}], walls:[[0,4],[5,5]], locks:[{c:3,r:2,m:'/'}] },
+  { tier:2, cols:6, rows:6, title:"门闩", hint:"钉住的镜子转不动。", line:"灯亮了。", starts:[{c:0,r:3,dir:"R"}], lamps:[[3,0]], mirrors:[{c:2,r:3,sol:'/',init:'\\'},{c:2,r:1,sol:'/',init:'/'},{c:5,r:1,sol:'/',init:'\\'},{c:0,r:0},{c:0,r:4}], walls:[[1,4],[1,5]], locks:[{c:5,r:0,m:'\\'}] },
+  { tier:2, cols:6, rows:7, title:"分岔", hint:"钉住的镜子转不动。", line:"灯亮了。", starts:[{c:1,r:6,dir:"U"}], lamps:[[4,4]], mirrors:[{c:1,r:5,sol:'/',init:'\\'},{c:3,r:5,sol:'/',init:'\\'},{c:4,r:3,sol:'\\',init:'\\'},{c:0,r:1},{c:2,r:6}], walls:[[0,4],[5,6]], locks:[{c:3,r:3,m:'/'}] },
+  { tier:2, cols:6, rows:7, title:"长街", hint:"钉住的镜子转不动。", line:"灯亮了。", starts:[{c:0,r:4,dir:"R"}], lamps:[[3,1]], mirrors:[{c:2,r:4,sol:'/',init:'\\'},{c:2,r:2,sol:'/',init:'/'},{c:5,r:2,sol:'/',init:'\\'},{c:0,r:0},{c:0,r:5}], walls:[[1,5],[1,6]], locks:[{c:5,r:1,m:'\\'}] },
+  { tier:2, cols:6, rows:6, title:"更漏", hint:"钉死的镜子转不动。", line:"灯亮了。", starts:[{c:1,r:0,dir:"D"}], lamps:[[5,2]], mirrors:[{c:1,r:3,sol:'\\',init:'\\'},{c:2,r:0,sol:'/',init:'\\'},{c:5,r:0,sol:'\\',init:'\\'},{c:3,r:2},{c:4,r:2}], walls:[[5,5],[3,1]], locks:[{c:2,r:3,m:'/'}] },
+  { tier:2, cols:6, rows:7, title:"桥影", hint:"分水镜把一束光分成两束。", line:"两盏都亮了。", starts:[{c:3,r:6,dir:"U"}], lamps:[[1,5],[2,0]], mirrors:[{c:3,r:3,sol:'\\',init:'\\'},{c:0,r:3,sol:'/',init:'\\'},{c:0,r:5,sol:'\\',init:'\\'},{c:3,r:1},{c:1,r:1}], walls:[[2,4],[0,1]], splitters:[{c:2,r:3,m:'\\'}] },
+  { tier:2, cols:6, rows:6, title:"夜雨", hint:"分水镜把一束光分成两束。", line:"两盏都亮了。", starts:[{c:5,r:2,dir:"L"}], lamps:[[0,2],[1,5]], mirrors:[{c:2,r:2,sol:'\\',init:'\\'},{c:2,r:0,sol:'\\',init:'/'},{c:0,r:0,sol:'/',init:'\\'},{c:2,r:4},{c:2,r:3}], walls:[[5,3],[5,0]], splitters:[{c:1,r:0,m:'/'}] },
+  { tier:2, cols:6, rows:6, title:"旧巷", hint:"分水镜把一束光分成两束。", line:"两盏都亮了。", starts:[{c:4,r:0,dir:"D"}], lamps:[[0,4],[5,3]], mirrors:[{c:4,r:1,sol:'/',init:'\\'},{c:3,r:1,sol:'/',init:'\\'},{c:3,r:4,sol:'/',init:'/'},{c:2,r:2},{c:2,r:1}], walls:[[5,1],[4,5]], splitters:[{c:3,r:3,m:'\\'}] },
+  { tier:3, cols:7, rows:7, title:"深巷", hint:"石钮被光照过，闸就开了。", line:"灯亮了。", starts:[{c:2,r:0,dir:"D"}], lamps:[[6,4]], mirrors:[{c:2,r:1,sol:'/',init:'\\'},{c:0,r:1,sol:'/',init:'/'},{c:0,r:4,sol:'\\',init:'/'},{c:3,r:4,sol:'/',init:'\\'},{c:4,r:1},{c:6,r:2}], walls:[[5,0],[1,5],[5,1]], locks:[{c:6,r:3,m:'\\'}], gates:[{c:3,r:3,m:'/'}], switches:[[0,3]] },
+  { tier:3, cols:7, rows:6, title:"回音", hint:"石钮、分水、钉镜，一起用上。", line:"两盏都亮了。", starts:[{c:1,r:5,dir:"U"}], lamps:[[5,3],[4,4]], mirrors:[{c:1,r:2,sol:'/',init:'\\'},{c:3,r:5,sol:'\\',init:'\\'},{c:6,r:5,sol:'/',init:'\\'},{c:4,r:1},{c:6,r:2}], walls:[[0,2],[4,2],[6,1]], locks:[{c:3,r:2,m:'\\'}], gates:[{c:6,r:3,m:'\\'}], splitters:[{c:6,r:4,m:'\\'}], switches:[[1,4]] },
+  { tier:3, cols:7, rows:6, title:"长夜", hint:"石钮、分水、钉镜，一起用上。", line:"两盏都亮了。", starts:[{c:6,r:3,dir:"L"}], lamps:[[2,1],[5,0]], mirrors:[{c:3,r:3,sol:'/',init:'/'},{c:3,r:5,sol:'/',init:'\\'},{c:2,r:4,sol:'/',init:'/'},{c:6,r:2},{c:2,r:0}], walls:[[0,0],[4,4],[4,2]], locks:[{c:0,r:5,m:'\\'}], gates:[{c:0,r:4,m:'/'}], splitters:[{c:5,r:3,m:'\\'}], switches:[[1,5]] },
+  { tier:3, cols:7, rows:6, title:"星火", hint:"石钮、分水、钉镜，一起用上。", line:"两盏都亮了。", starts:[{c:6,r:4,dir:"L"}], lamps:[[0,3],[3,0]], mirrors:[{c:4,r:4,sol:'\\',init:'/'},{c:1,r:3,sol:'/',init:'\\'},{c:0,r:5,sol:'\\',init:'/'},{c:6,r:1},{c:2,r:5}], walls:[[4,0],[2,1],[0,1]], locks:[{c:1,r:5,m:'/'}], gates:[{c:4,r:3,m:'\\'}], splitters:[{c:3,r:3,m:'\\'}], switches:[[5,4]] },
+  { tier:3, cols:7, rows:7, title:"不熄", hint:"石钮、分水、钉镜，一起用上。", line:"两盏都亮了。", starts:[{c:5,r:6,dir:"U"}], lamps:[[0,5],[3,4]], mirrors:[{c:5,r:4,sol:'\\',init:'/'},{c:4,r:4,sol:'/',init:'/'},{c:1,r:3,sol:'\\',init:'/'},{c:0,r:3,sol:'/',init:'\\'},{c:3,r:1},{c:5,r:3}], walls:[[2,2],[3,2],[3,3]], locks:[{c:4,r:6,m:'/'}], gates:[{c:1,r:6,m:'\\'}], splitters:[{c:1,r:4,m:'/'}], switches:[[5,5]] },
+  { tier:3, cols:7, rows:7, title:"归途", hint:"石钮、分水、钉镜，一起用上。", line:"两盏都亮了。", starts:[{c:1,r:0,dir:"D"}], lamps:[[2,0],[3,3]], mirrors:[{c:1,r:3,sol:'\\',init:'\\'},{c:2,r:3,sol:'\\',init:'/'},{c:2,r:4,sol:'\\',init:'/'},{c:4,r:4,sol:'/',init:'\\'},{c:1,r:5},{c:5,r:6}], walls:[[5,5],[6,6],[2,6]], locks:[{c:2,r:1,m:'\\'}], gates:[{c:4,r:1,m:'\\'}], splitters:[{c:3,r:1,m:'/'}], switches:[[4,3]] },
+  { tier:3, cols:7, rows:7, title:"叠影", hint:"石钮、分水、钉镜，一起用上。", line:"两盏都亮了。", starts:[{c:4,r:0,dir:"D"}], lamps:[[1,4],[6,1]], mirrors:[{c:4,r:2,sol:'\\',init:'\\'},{c:6,r:5,sol:'/',init:'\\'},{c:3,r:5,sol:'/',init:'/'},{c:3,r:6,sol:'/',init:'\\'},{c:6,r:0},{c:0,r:4}], walls:[[2,2],[4,6],[0,5]], locks:[{c:1,r:6,m:'\\'}], gates:[{c:6,r:2,m:'\\'}], splitters:[{c:4,r:1,m:'\\'}], switches:[[5,2]] },
+  { tier:3, cols:7, rows:7, title:"灯阵", hint:"石钮、分水、钉镜，一起用上。", line:"两盏都亮了。", starts:[{c:4,r:0,dir:"D"}], lamps:[[4,3],[6,5]], mirrors:[{c:4,r:1,sol:'/',init:'/'},{c:1,r:4,sol:'\\',init:'/'},{c:3,r:4,sol:'\\',init:'/'},{c:4,r:6,sol:'/',init:'/'},{c:0,r:2},{c:6,r:0}], walls:[[0,4],[2,3],[5,0]], locks:[{c:3,r:6,m:'\\'}], gates:[{c:1,r:1,m:'/'}], splitters:[{c:4,r:5,m:'/'}], switches:[[2,1]] },
+  { tier:3, cols:7, rows:6, title:"满城", hint:"石钮、分水、钉镜，一起用上。", line:"两盏都亮了。", starts:[{c:5,r:5,dir:"U"}], lamps:[[0,4],[3,3]], mirrors:[{c:5,r:3,sol:'\\',init:'/'},{c:4,r:3,sol:'/',init:'/'},{c:1,r:2,sol:'\\',init:'/'},{c:0,r:2,sol:'/',init:'\\'},{c:3,r:1},{c:6,r:0}], walls:[[2,2],[3,2],[3,4]], locks:[{c:4,r:5,m:'/'}], gates:[{c:1,r:5,m:'\\'}], splitters:[{c:1,r:3,m:'/'}], switches:[[5,4]] },
+  { tier:3, cols:7, rows:7, title:"尾声", hint:"石钮、分水、钉镜，一起用上。", line:"两盏都亮了。", starts:[{c:6,r:2,dir:"L"}], lamps:[[0,6],[3,0]], mirrors:[{c:4,r:2,sol:'/',init:'/'},{c:4,r:5,sol:'/',init:'/'},{c:0,r:4,sol:'/',init:'\\'},{c:4,r:0},{c:5,r:0}], walls:[[6,1],[5,6],[2,2]], locks:[{c:2,r:4,m:'\\'}], gates:[{c:2,r:5,m:'\\'}], splitters:[{c:3,r:5,m:'\\'}], switches:[[4,4]] },
+];
+
+/* 从初始盘面到答案要转几面镜子：这才是玩家真正要做的事。
+   初灯 1-2 转、夜行 2-3 转、长明 3-4 转（可转镜不够时以实际数为上限）。
+   手写关的起手式若已在区间内就原样保留，只调整越界的。 */
+function distOf(s){
+  return s.mirrors.filter(m => m.sol && m.init && m.init !== m.sol).length;
+}
+function fitInit(s, band, seed){
+  const rot = s.mirrors.filter(m => m.sol);
+  if(!rot.length) return;
+  const lo = Math.min(band[0], rot.length), hi = Math.min(band[1], rot.length);
+  const d = distOf(s);
+  if(d >= lo && d <= hi) return;
+  const target = clamp(d, lo, hi);
+  const rnd = mulberry32(seed);
+  const order = rot.map((m,i)=>i);
+  for(let i = order.length - 1; i > 0; i--){
+    const j = Math.floor(rnd() * (i + 1));
+    const tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+  }
+  rot.forEach((m,i)=>{
+    m.init = order.indexOf(i) < target ? otherMirror(m.sol) : m.sol;
+  });
+}
+
+/* 难度分：可转镜最多、机关次之、要转的次数也要算。同卷内按分数排，图鉴和闯关都自然变难。 */
+function levelScore(s){
+  const rot = s.mirrors.filter(m=>m.sol).length;
+  return rot*3 + distOf(s)*2
+       + (s.splitters||[]).length*2 + (s.gates||[]).length*2
+       + (s.switches||[]).length + (s.locks||[]).length;
+}
+
+const SPECS = [];
+(function assemble(){
+  const buckets = [[],[],[]];
+  const BAND = [[1,2],[2,3],[3,4]];
+  HAND.forEach((s,i)=>buckets[HAND_TIER[i]-1].push(Object.assign({}, s, { tier:HAND_TIER[i] })));
+  GEN.forEach(s=>buckets[s.tier-1].push(s));
+  buckets.forEach((arr, ti)=>{
+    arr.forEach((s, i)=>fitInit(s, BAND[ti], 4099 + ti*977 + i*31));
+    arr.sort((a,b)=>levelScore(a)-levelScore(b));
+    arr.forEach((s, i)=>{
+      s.id = 't' + (ti+1) + '-' + String(i+1).padStart(2,'0');
+      s.tier = ti+1;
+      SPECS.push(s);
+    });
+  });
+})();
+const N = SPECS.length;
+
+function buildLevel(spec, idx){
+  const rng = mulberry32(1013 + idx*97);
+  const cells = new Map();
+  const key = (c,r)=>c+','+r;
+  const put = (c,r,o)=>{ const cell = Object.assign({c,r},o); cells.set(key(c,r), cell); return cell; };
+  const lv = { cols:spec.cols, rows:spec.rows, title:spec.title, hint:spec.hint,
+               line:spec.line, tier:spec.tier, id:spec.id, idx, cells,
+               starts:[], lamps:[], mirrors:[], walls:[],
+               locks:[], gates:[], splitters:[], switches:[], gatesOn:false };
+
+  for(const s of spec.starts) lv.starts.push({ c:s.c, r:s.r, dir:DIRC[s.dir].slice() });
+
+  for(const [c,r] of spec.lamps){ put(c,r,{type:'lamp'}); lv.lamps.push({c,r}); }
+  for(const [c,r] of (spec.walls||[])) lv.walls.push(put(c,r,{type:'wall'}));
+  for(const [c,r] of (spec.switches||[])) lv.switches.push(put(c,r,{type:'switch', lit:false}));
+  for(const s of (spec.splitters||[]))
+    lv.splitters.push(put(s.c,s.r,{type:'splitter', m:s.m, spin:s.m==='\\'?1:0}));
+  for(const s of (spec.locks||[]))
+    lv.locks.push(put(s.c,s.r,{type:'lock', m:s.m, spin:s.m==='\\'?1:0}));
+  for(const s of (spec.gates||[]))
+    lv.gates.push(put(s.c,s.r,{type:'gate', m:s.m, spin:s.m==='\\'?1:0}));
+
+  for(const s of (spec.mirrors||[])){
+    const sol  = s.sol || null;
+    const init = s.init || (rng() < 0.5 ? '/' : '\\');
+    const cell = put(s.c,s.r,{ type:'mirror', sol, m:init, spin:init==='\\'?1:0 });
+    lv.mirrors.push(cell);
+  }
+  return lv;
+}
+
+/* ---------------------------------------------------------------- 05 光学 */
+/* 追踪所有光束。石钮采用“单调闭包”：被光照到就记住，再重新追一遍，
+   直到没有新的石钮被点亮（最多 12 轮，必然收敛）。
+   闸镜：任意石钮亮起即反光（每关至多一枚石钮）。
+   分水镜：光束直行，同时折出一束（不额外消耗）。 */
+function traceLevel(lv){
+  const litSwitches = new Set();
+  let beams = [], lit = new Set(), switches = new Set();
+
+  for(let pass=0; pass<12; pass++){
+    const active = new Set(litSwitches);
+    beams = []; lit = new Set(); switches = new Set();
+
+    const queue = lv.starts.map(s=>({
+      c:s.c, r:s.r, d:s.dir.slice(), fromSource:true, skipCurrent:false
+    }));
+    let guard = 0;
+
+    while(queue.length && guard++ < 64){
+      const job = queue.shift();
+      const beam = { cells:[[job.c,job.r]], entry:job.d.slice(),
+                     fromSource:!!job.fromSource, endDir:job.d.slice(), stop:'out' };
+      let c = job.c, r = job.r, d = job.d.slice();
+      let first = job.skipCurrent;
+      const seen = new Set();
+      let steps = 0;
+
+      while(steps++ < 256){
+        const stateKey = c+','+r+','+d[0]+','+d[1];
+        if(seen.has(stateKey)){ beam.stop = 'loop'; break; }
+        seen.add(stateKey);
+
+        const cell = lv.cells.get(c+','+r);
+        if(!first && cell){
+          if(cell.type === 'lamp'){ lit.add(c+','+r); beam.stop = 'lamp'; break; }
+          if(cell.type === 'wall'){
+            if(beam.cells.length > 1) beam.cells.pop();   // 停在墙皮上，别画进墙心
+            beam.stop = 'wall'; break;
+          }
+          if(cell.type === 'mirror' || cell.type === 'lock'){
+            d = reflect(cell.m, d);
+          } else if(cell.type === 'gate'){
+            if(active.size > 0) d = reflect(cell.m, d);
+          } else if(cell.type === 'switch'){
+            switches.add(c+','+r);
+          } else if(cell.type === 'splitter'){
+            const bd = reflect(cell.m, d);
+            queue.push({ c, r, d:bd, fromSource:false, skipCurrent:true });
+          }
+        }
+        first = false;
+
+        const nc = c + d[0], nr = r + d[1];
+        if(nc < 0 || nr < 0 || nc >= lv.cols || nr >= lv.rows){ beam.stop = 'out'; break; }
+        c = nc; r = nr;
+        beam.cells.push([c,r]);
+      }
+      beam.endDir = d;
+      beams.push(beam);
+    }
+
+    let changed = false;
+    for(const k of switches) if(!litSwitches.has(k)){ litSwitches.add(k); changed = true; }
+    if(!changed) break;
+  }
+
+  return { beams, lit, switches:litSwitches, gatesOn:litSwitches.size > 0 };
+}
+
+/* ---------------------------------------------------------------- 06 进度存储 */
+/* localStorage 不可用（隐私模式 / 被禁用 / file:// 某些浏览器）时，
+   自动退回内存存储，游戏照常可玩，不报错。 */
+const STORE = (function(){
+  let ok = false;
+  try{
+    const probe = 'lantern.probe';
+    localStorage.setItem(probe,'1');
+    localStorage.removeItem(probe);
+    ok = true;
+  }catch(e){ ok = false; }
+  const mem = Object.create(null);
+  return {
+    read(key){
+      try{ if(ok) return localStorage.getItem(key); }catch(e){}
+      return (key in mem) ? mem[key] : null;
+    },
+    write(key, val){
+      mem[key] = val;
+      try{ if(ok) localStorage.setItem(key, val); }catch(e){}
+    }
+  };
+})();
+
+const PROGRESS_KEY = 'lantern.progress';   // 哪些盏亮过：{ v:2, solved:{ id:true } }
+const RUN_KEY      = 'lantern.run';        // 这一趟：{ ids:[10], pos, done }
+const RUN_LEN      = 10;
+
+const progress = { solved: Object.create(null) };
+
+/* 旧版存档是固定十关的布尔数组，按当时的手写关卡顺序迁移过来 */
+(function loadProgress(){
+  const raw = STORE.read(PROGRESS_KEY);
+  if(!raw) return;
+  let data;
+  try{ data = JSON.parse(raw); }catch(e){ return; }
+  if(!data || !data.solved) return;
+  if(Array.isArray(data.solved)) return;   // 下面旧格式单独处理
+  for(const id in data.solved) if(data.solved[id]) progress.solved[id] = true;
+})();
+
+/* 旧版：lantern.progress 直接是 {solved:[bool × 10]}，或更早是裸数组 */
+(function migrateLegacy(){
+  const raw = STORE.read(PROGRESS_KEY);
+  if(!raw) return;
+  let data;
+  try{ data = JSON.parse(raw); }catch(e){ return; }
+  const arr = Array.isArray(data) ? data : (data && Array.isArray(data.solved) ? data.solved : null);
+  if(!arr) return;
+  const legacySpecs = HAND.map(h => SPECS.find(s => s.title === h.title));
+  arr.forEach((v,i)=>{ if(v && legacySpecs[i]) progress.solved[legacySpecs[i].id] = true; });
+  saveProgress();
+})();
+
+function saveProgress(){
+  try{ STORE.write(PROGRESS_KEY, JSON.stringify({ v:2, solved:progress.solved })); }catch(e){}
+}
+function solvedCount(){
+  let n = 0;
+  for(const id in progress.solved) if(progress.solved[id]) n++;
+  return n;
+}
+function tierSolved(tier){
+  let n = 0;
+  for(const s of SPECS) if(s.tier === tier && progress.solved[s.id]) n++;
+  return n;
+}
+
+/* 一趟闯关：三卷各抽 3 / 4 / 3 盏，按卷序走，越走越难 */
+const run = { ids:[], pos:0, done:false };
+
+function shuffled(a){
+  const out = a.slice();
+  for(let i=out.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    const tmp = out[i]; out[i] = out[j]; out[j] = tmp;
+  }
+  return out;
+}
+function makeRunPick(){
+  const need = [3,4,3];
+  const pick = [];
+  TIERS.forEach((_, ti)=>{
+    const pool = shuffled(SPECS.filter(s => s.tier === ti+1)).slice(0, need[ti]);
+    pool.sort((a,b)=>levelScore(a)-levelScore(b));
+    for(const s of pool) pick.push(s.id);
+  });
+  return pick;
+}
+function hasRun(){ return run.ids.length === RUN_LEN; }
+function saveRun(){
+  try{ STORE.write(RUN_KEY, JSON.stringify({ ids:run.ids, pos:run.pos, done:run.done })); }catch(e){}
+}
+
+(function loadRun(){
+  const raw = STORE.read(RUN_KEY);
+  if(!raw) return;
+  let data;
+  try{ data = JSON.parse(raw); }catch(e){ return; }
+  if(!data || !Array.isArray(data.ids) || data.ids.length !== RUN_LEN) return;
+  const ok = data.ids.every(id => SPECS.some(s => s.id === id));
+  if(!ok) return;
+  run.ids  = data.ids.slice();
+  run.pos  = clamp(data.pos|0, 0, RUN_LEN-1);
+  run.done = !!data.done;
+})();
+
+/* ---------------------------------------------------------------- 07 状态与布局 */
+const state = {
+  mode:'title',          // title | codex | play
+  level:null,
+  levelId:null,
+  tier:1,
+  runMode:false,         // 当前这盏是「这一趟」里的一盏
+  runDone:false,         // 这一趟走完了
+  codexTier:1,           // 图鉴翻到第几卷
+  codexSel:null,         // 图鉴里选中的关卡 id
+  solved:false,
+  solveT:0,
+  startT:0,
+  hover:null,            // 棋盘悬停格
+  hoverHit:null,         // 界面悬停项
+  sel:null,              // 键盘/触屏选中的镜子格
+  undo:[],               // 每一步的镜子朝向快照
+  tr:null,               // 当前光学结果（缓存）
+  hits:[],               // 本帧可点击区域
+  motes:[],
+  t0:performance.now(),
+  bump:null              // 被钉住 / 未开的闸镜：轻撞一下
+};
+for(let i=0;i<46;i++){
+  state.motes.push({ x:Math.random(), y:Math.random(), vx:(Math.random()-0.5)*0.02,
+                     vy:-0.006-Math.random()*0.014, r:0.7+Math.random()*1.5,
+                     ph:Math.random()*6.28, a:0.10+Math.random()*0.22 });
+}
+
+const L = { x0:0, y0:0, cell:60 };
+
+/* 一次算出页眉、页脚各条基线与棋盘可用区域，保证控件永远不压棋盘 */
+function metrics(){
+  const narrow = W < 560;
+  const short  = H < 560;
+  const padX = narrow ? Math.max(14, Math.min(24, W*0.045))
+                      : Math.max(56, Math.min(140, W*0.09));
+  const headerH = short ? 64 : narrow ? 96 : 120;
+  const bottomPad = SAFE_B + (short ? 8 : narrow ? 10 : 16);
+  const hintY     = H - bottomPad - (narrow ? 22 : 12);
+  const buttonY   = short ? H - 26 : hintY - (narrow ? 30 : 34);
+  /* 横屏时页脚省掉整排灯盏（页眉已写「第几盏」），把高度让给棋盘 */
+  const progressY = buttonY - (narrow ? 38 : 44);
+  const captionY  = short ? buttonY - 28 : progressY - (narrow ? 32 : 36);
+  const footerTop = captionY - (short ? 20 : narrow ? 22 : 28);
+  return { narrow, short, padX, headerH, hintY, buttonY, progressY, captionY,
+           footerH: H - footerTop };
+}
+
+function headerRows(){
+  const m = metrics();
+  const frameTop = m.short ? 12 : m.narrow ? 14 : 26;
+  const top = Math.max(frameTop + 16, m.headerH * 0.28);
+  const tGap = m.short ? 16 : m.narrow ? 20 : 26;
+  const hGap = m.short ? 14 : m.narrow ? 18 : 24;
+  return { kicker: top, title: top + tGap, hint: top + tGap + hGap };
+}
+
+function layout(){
+  const m = metrics();
+  const lv = state.level;
+  if(!lv){ L.cell = 60; L.x0 = 0; L.y0 = 0; return; }
+  const availW = W - m.padX*2;
+  const availH = H - m.headerH - m.footerH - 8;
+  const cell = Math.min(availW/lv.cols, availH/lv.rows);
+  L.cell = clamp(cell, 22, 104);
+  L.x0 = Math.round((W - lv.cols*L.cell)/2);
+  L.y0 = Math.round(m.headerH + (availH - lv.rows*L.cell)/2);
+}
+function cellCenter(c,r){
+  return { x:L.x0 + (c+0.5)*L.cell, y:L.y0 + (r+0.5)*L.cell };
+}
+function pickCell(mx,my){
+  const lv = state.level;
+  if(!lv) return null;
+  const c = Math.floor((mx - L.x0)/L.cell);
+  const r = Math.floor((my - L.y0)/L.cell);
+  if(c<0 || r<0 || c>=lv.cols || r>=lv.rows) return null;
+  return { c, r };
+}
+function cellAt(c,r){
+  return state.level ? state.level.cells.get(c+','+r) : null;
+}
+
+/* 图鉴：每卷十二盏，宽屏四列、窄屏三列 */
+function codexLayout(){
+  const m = metrics();
+  /* 横屏（矮屏）排成六列两行，十二盏正好一页，卡片尽量高一些 */
+  const cols = m.short ? 6 : m.narrow ? 3 : 4;
+  const rows = Math.ceil(12/cols);
+  const tabsY   = m.headerH + (m.short ? 18 : m.narrow ? 24 : 30);
+  const cardsTop = tabsY + (m.short ? 30 : m.narrow ? 36 : 44);
+  const cardsBot = m.short ? H - 58 : m.captionY - (m.narrow ? 26 : 34);
+  const gap = m.short ? 8 : m.narrow ? 9 : 14;
+  const availW = W - m.padX*2;
+  const availH = Math.max(m.short ? 100 : 140, cardsBot - cardsTop);
+  const tileW = Math.min(m.short ? 132 : m.narrow ? 140 : 216, (availW - gap*(cols-1))/cols);
+  const tileH = Math.min(m.short ? 112 : m.narrow ? 132 : 206, (availH - gap*(rows-1))/rows);
+  const gridW = tileW*cols + gap*(cols-1);
+  const gridH = tileH*rows + gap*(rows-1);
+  const x0 = Math.round((W - gridW)/2);
+  const y0 = Math.round(cardsTop + Math.max(0, (availH - gridH)/2));
+  return { m, cols, rows, tileW, tileH, gap, x0, y0, tabsY, gridW, gridH };
+}
+function codexCards(){
+  const g = codexLayout();
+  const specs = SPECS.filter(s => s.tier === state.codexTier);
+  return specs.map((s,i)=>({
+    spec:s,
+    x: g.x0 + (i % g.cols)*(g.tileW + g.gap),
+    y: g.y0 + Math.floor(i / g.cols)*(g.tileH + g.gap),
+    w: g.tileW, h: g.tileH
+  }));
+}
+
+function specById(id){ return SPECS.find(s => s.id === id) || SPECS[0]; }
+function tierSpecs(tier){ return SPECS.filter(s => s.tier === tier); }
+
+/* ---------------------------------------------------------------- 08 绘制基础 */
+function drawPaper(){ ctx.drawImage(paper, 0, 0, W, H); }
+
+function wobbleLine(x1,y1,x2,y2,seed,jit,color,width){
+  const rnd = mulberry32(seed);
+  const mx = (x1+x2)/2 + (rnd()-0.5)*jit;
+  const my = (y1+y2)/2 + (rnd()-0.5)*jit;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.beginPath();
+  ctx.moveTo(x1 + (rnd()-0.5)*jit*0.4, y1 + (rnd()-0.5)*jit*0.4);
+  ctx.quadraticCurveTo(mx, my, x2 + (rnd()-0.5)*jit*0.4, y2 + (rnd()-0.5)*jit*0.4);
+  ctx.stroke();
+}
+
+function drawGrid(){
+  const lv = state.level;
+  const x0 = L.x0, y0 = L.y0, s = L.cell;
+  ctx.save();
+  ctx.lineCap = 'round';
+  for(let i=0;i<=lv.cols;i++)
+    wobbleLine(x0+i*s, y0, x0+i*s, y0+lv.rows*s, 11+i, 2.4, GRID, 1);
+  for(let j=0;j<=lv.rows;j++)
+    wobbleLine(x0, y0+j*s, x0+lv.cols*s, y0+j*s, 71+j, 2.4, GRID, 1);
+  ctx.restore();
+}
+
+function drawWall(cell){
+  const { x, y } = cellCenter(cell.c, cell.r);
+  const s = L.cell, w = s*0.62;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-0.012);
+  ctx.fillStyle = 'rgba(66,54,42,0.86)';
+  rrPath(-w/2, -w/2, w, w, Math.max(2,s*0.05)); ctx.fill();
+  ctx.strokeStyle = 'rgba(243,231,210,0.30)';
+  ctx.lineWidth = Math.max(1, s*0.02);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(-w/2, -w/2, w, w); ctx.clip();
+  for(let k=-w; k<w*1.4; k+=s*0.13){
+    ctx.beginPath(); ctx.moveTo(k, -w/2); ctx.lineTo(k+w, w/2); ctx.stroke();
+  }
+  ctx.restore();
+  ctx.restore();
+}
+
+/* 镜面三板：底板 / 反射面 / 轴线。
+   spin: 0 → '/'，1 → '\\'（动画中间值也行）。 */
+function drawPlate(x, y, s, fill, stroke){
+  const w = s*0.74;
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = Math.max(1, s*0.018);
+  rrPath(x-w/2, y-w/2, w, w, Math.max(3, s*0.07));
+  ctx.fill(); ctx.stroke();
+  return w;
+}
+function drawSurface(x, y, s, spin, alpha, dashed){
+  const w = s*0.74, ang = -Math.PI/4 + spin*(Math.PI/2), r = w*0.40;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(ang);
+  ctx.lineCap = 'round';
+  if(dashed){ ctx.setLineDash([Math.max(2,s*0.10), Math.max(2,s*0.09)]); }
+  ctx.strokeStyle = 'rgba(255,255,255,0.50)';
+  ctx.lineWidth = Math.max(3, s*0.10);
+  ctx.beginPath(); ctx.moveTo(-r,0); ctx.lineTo(r,0); ctx.stroke();
+  ctx.strokeStyle = 'rgba(59,49,40,'+(alpha===undefined?1:alpha)+')';
+  ctx.lineWidth = Math.max(2, s*0.055);
+  ctx.beginPath(); ctx.moveTo(-r,0); ctx.lineTo(r,0); ctx.stroke();
+  if(!dashed){
+    ctx.strokeStyle = 'rgba(193,130,63,0.85)';
+    ctx.lineWidth = Math.max(1, s*0.022);
+    ctx.beginPath();
+    ctx.moveTo(-r*0.55, -Math.max(1,s*0.035));
+    ctx.lineTo( r*0.55, -Math.max(1,s*0.035));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawMirror(cell, hot, sel, t){
+  const { x, y } = cellCenter(cell.c, cell.r);
+  const s = L.cell;
+  const lift = hot ? 'rgba(255,247,231,0.96)' : 'rgba(255,251,241,0.62)';
+  drawPlate(x, y, s, lift, hot ? 'rgba(150,104,50,0.85)' : 'rgba(120,97,70,0.45)');
+  drawSurface(x, y, s, cell.spin, 1, false);
+
+  // 转轴的小暖点
+  ctx.fillStyle = sel ? 'rgba(193,130,63,0.9)' : 'rgba(59,49,40,0.28)';
+  ctx.beginPath();
+  ctx.arc(x, y + s*0.30, Math.max(1.4, s*0.028), 0, TAU);
+  ctx.fill();
+
+  if(sel && !state.solved){
+    const a = 0.38 + Math.sin(t*0.004)*0.16;
+    ctx.strokeStyle = 'rgba(193,130,63,'+a.toFixed(3)+')';
+    ctx.lineWidth = 1.3;
+    rrPath(x-s*0.42, y-s*0.42, s*0.84, s*0.84, Math.max(4,s*0.09));
+    ctx.stroke();
+  }
+}
+
+function bumpOf(cell){
+  const b = state.bump;
+  if(!b || b.c !== cell.c || b.r !== cell.r) return 0;
+  const left = b.until - performance.now();
+  return left > 0 ? Math.sin(left * 0.11) * 1.7 * Math.min(1, left/90) : 0;
+}
+function drawLock(cell){
+  const p = cellCenter(cell.c, cell.r);
+  const x = p.x + bumpOf(cell), y = p.y;
+  const s = L.cell;
+  drawPlate(x, y, s, 'rgba(243,236,222,0.60)', 'rgba(120,97,70,0.42)');
+  drawSurface(x, y, s, cell.spin, 0.82, false);
+  // 钉住：右上角一把小锁（锁扣 + 锁身 + 锁孔）
+  const lx = x + s*0.235, ly = y - s*0.215;
+  const bw = Math.max(5.5, s*0.13), bh = Math.max(4.4, s*0.10);
+  ctx.strokeStyle = 'rgba(59,49,40,0.60)';
+  ctx.lineWidth = Math.max(1, s*0.018);
+  ctx.beginPath();
+  ctx.arc(lx, ly - bh*0.46, bw*0.30, Math.PI*1.06, Math.PI*1.94);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(59,49,40,0.58)';
+  rrPath(lx - bw*0.5, ly - bh*0.44, bw, bh, Math.max(1.2, s*0.022));
+  ctx.fill();
+  ctx.fillStyle = 'rgba(246,236,218,0.80)';
+  ctx.beginPath();
+  ctx.arc(lx, ly - bh*0.12, Math.max(0.7, s*0.013), 0, TAU);
+  ctx.fill();
+}
+
+function drawGate(cell, on, t){
+  const p = cellCenter(cell.c, cell.r);
+  const x = p.x + bumpOf(cell), y = p.y;
+  const s = L.cell;
+  if(on){
+    const g = ctx.createRadialGradient(x, y, 0, x, y, s*0.6);
+    g.addColorStop(0, 'rgba(255,190,107,0.20)');
+    g.addColorStop(1, 'rgba(255,190,107,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, s*0.6, 0, TAU); ctx.fill();
+  }
+  drawPlate(x, y, s, on ? 'rgba(255,247,231,0.92)' : 'rgba(238,229,212,0.55)',
+                     on ? 'rgba(150,104,50,0.80)' : 'rgba(120,97,70,0.36)');
+  drawSurface(x, y, s, cell.spin, on ? 1 : 0.38, !on);
+  // 中心的闸灯
+  const pr = Math.max(1.6, s*0.042);
+  ctx.fillStyle = on ? 'rgba(255,214,148,0.98)' : 'rgba(59,49,40,0.18)';
+  ctx.beginPath(); ctx.arc(x, y, pr, 0, TAU); ctx.fill();
+  ctx.strokeStyle = on ? 'rgba(146,95,36,0.7)' : 'rgba(59,49,40,0.25)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(x, y, pr*2.1, 0, TAU); ctx.stroke();
+}
+
+function drawSplitter(cell){
+  const { x, y } = cellCenter(cell.c, cell.r);
+  const s = L.cell, w = s*0.76;
+  ctx.save();
+  ctx.translate(x, y);
+  // 菱形棱镜
+  ctx.beginPath();
+  ctx.moveTo(0, -w*0.5); ctx.lineTo(w*0.5, 0); ctx.lineTo(0, w*0.5); ctx.lineTo(-w*0.5, 0);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255,250,239,0.66)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(120,97,70,0.50)';
+  ctx.lineWidth = Math.max(1, s*0.018);
+  ctx.stroke();
+  // 分光面
+  const ang = -Math.PI/4 + cell.spin*(Math.PI/2);
+  ctx.save();
+  ctx.rotate(ang);
+  ctx.strokeStyle = 'rgba(59,49,40,0.72)';
+  ctx.lineWidth = Math.max(1.6, s*0.040);
+  ctx.beginPath(); ctx.moveTo(-w*0.26, 0); ctx.lineTo(w*0.26, 0); ctx.stroke();
+  // 折出的那一束，用暖色短划提示
+  ctx.strokeStyle = 'rgba(193,130,63,0.85)';
+  ctx.lineWidth = Math.max(1.2, s*0.026);
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -w*0.30); ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = 'rgba(193,130,63,0.9)';
+  ctx.beginPath(); ctx.arc(0, 0, Math.max(1.4, s*0.030), 0, TAU); ctx.fill();
+  ctx.restore();
+}
+
+function drawSwitch(cell, lit, t){
+  const { x, y } = cellCenter(cell.c, cell.r);
+  const s = L.cell;
+  if(lit){
+    lampGlow(x, y, s*0.85, 0.65);
+    const pulse = 0.5 + Math.sin(t*0.004)*0.25;
+    ctx.strokeStyle = 'rgba(255,196,110,'+pulse.toFixed(2)+')';
+    ctx.lineWidth = Math.max(1, s*0.018);
+    for(let i=0;i<8;i++){
+      const a = i*TAU/8 + Math.PI/8, r0 = s*0.21, r1 = s*0.30;
+      ctx.beginPath();
+      ctx.moveTo(x+Math.cos(a)*r0, y+Math.sin(a)*r0);
+      ctx.lineTo(x+Math.cos(a)*r1, y+Math.sin(a)*r1);
+      ctx.stroke();
+    }
+  }
+  // 略带不规则的石头
+  ctx.beginPath(); ctx.arc(x, y, s*0.175, 0, TAU); ctx.fillStyle =
+    lit ? 'rgba(255,226,170,0.96)' : 'rgba(78,64,48,0.66)';
+  ctx.fill();
+  ctx.beginPath(); ctx.arc(x+s*0.012, y-s*0.010, s*0.135, 0, TAU);
+  ctx.fillStyle = lit ? 'rgba(255,239,205,0.85)' : 'rgba(96,80,60,0.50)';
+  ctx.fill();
+  ctx.strokeStyle = lit ? 'rgba(146,95,36,0.85)' : 'rgba(243,231,210,0.30)';
+  ctx.lineWidth = Math.max(1, s*0.016);
+  ctx.beginPath(); ctx.arc(x, y, s*0.175, 0, TAU); ctx.stroke();
+  // 石钮上的刻痕
+  ctx.strokeStyle = lit ? 'rgba(146,95,36,0.55)' : 'rgba(243,231,210,0.26)';
+  ctx.beginPath();
+  ctx.moveTo(x - s*0.075, y + s*0.012);
+  ctx.lineTo(x + s*0.075, y + s*0.012);
+  ctx.stroke();
+}
+
+function lampShape(x, y, h, w, lit, t){
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  ctx.moveTo(-w*0.42, -h*0.30);
+  ctx.lineTo(-w*0.54,  h*0.34);
+  ctx.quadraticCurveTo(0, h*0.52, w*0.54, h*0.34);
+  ctx.lineTo(w*0.42, -h*0.30);
+  ctx.closePath();
+  ctx.fillStyle = lit ? 'rgba(255,228,176,0.95)' : 'rgba(255,252,244,0.58)';
+  ctx.fill();
+  ctx.strokeStyle = lit ? 'rgba(146,95,36,0.92)' : INK_SOFT;
+  ctx.lineWidth = Math.max(1.1, w*0.075);
+  ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-w*0.50, -h*0.30); ctx.lineTo(w*0.50, -h*0.30); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, -h*0.30, w*0.26, Math.PI, 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-w*0.22, h*0.44); ctx.lineTo(w*0.22, h*0.44); ctx.stroke();
+  if(lit){
+    const fl = 1 + Math.sin(t*0.006)*0.12;
+    ctx.fillStyle = '#fff6e0';
+    ctx.beginPath(); ctx.ellipse(0, h*0.02, w*0.16, h*0.20*fl, 0, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+function lampGlow(x, y, radius, intensity){
+  const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  g.addColorStop(0, 'rgba(255,203,120,' + (0.55*intensity) + ')');
+  g.addColorStop(0.35, 'rgba(255,178,86,' + (0.20*intensity) + ')');
+  g.addColorStop(1, 'rgba(255,170,80,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(x, y, radius, 0, TAU); ctx.fill();
+}
+function drawLamp(cell, lit, t){
+  const { x, y } = cellCenter(cell.c, cell.r);
+  const s = L.cell;
+  if(lit) lampGlow(x, y, s*1.55*(1 + Math.sin(t*0.0035)*0.045), 1);
+  lampShape(x, y, s*0.46, s*0.34, lit, t);
+}
+
+function sourcePos(st){
+  const cc = cellCenter(st.c, st.r), d = st.dir, s = L.cell;
+  return { x: cc.x - d[0]*(s*0.5 + 14), y: cc.y - d[1]*(s*0.5 + 14) };
+}
+function drawSource(st){
+  const p = sourcePos(st);
+  const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, L.cell*0.55);
+  g.addColorStop(0, 'rgba(255,196,110,0.55)');
+  g.addColorStop(1, 'rgba(255,196,110,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(p.x, p.y, L.cell*0.55, 0, TAU); ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,240,208,0.98)';
+  ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3, L.cell*0.085), 0, TAU); ctx.fill();
+  ctx.strokeStyle = 'rgba(193,130,63,0.55)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(5, L.cell*0.17), 0, TAU); ctx.stroke();
+}
+
+function beamPoints(b){
+  const pts = b.cells.map(([c,r])=>cellCenter(c,r));
+  if(b.fromSource && pts.length){
+    const p0 = pts[0];
+    pts.unshift({ x:p0.x - b.entry[0]*L.cell*0.46, y:p0.y - b.entry[1]*L.cell*0.46 });
+  }
+  if(b.stop !== 'lamp' && b.stop !== 'wall' && pts.length){
+    const last = pts[pts.length-1];
+    pts.push({ x:last.x + b.endDir[0]*L.cell*0.5, y:last.y + b.endDir[1]*L.cell*0.5 });
+  }
+  return pts;
+}
+
+function drawBeam(b, t){
+  const pts = beamPoints(b);
+  if(pts.length < 2) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // 外晕
+  ctx.shadowColor = 'rgba(255,176,84,0.9)';
+  ctx.shadowBlur = L.cell*0.42;
+  ctx.strokeStyle = 'rgba(255,186,96,0.55)';
+  ctx.lineWidth = Math.max(3, L.cell*0.075);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+
+  // 芯
+  ctx.shadowBlur = L.cell*0.18;
+  ctx.strokeStyle = 'rgba(255,241,208,0.95)';
+  ctx.lineWidth = Math.max(1.6, L.cell*0.030);
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.stroke();
+
+  // 游走的光点
+  let total = 0;
+  for(let i=1;i<pts.length;i++) total += Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y);
+  const speed = 0.00022;
+  for(let k=0;k<3;k++){
+    let u = ((t*speed + k/3) % 1) * total;
+    for(let i=1;i<pts.length;i++){
+      const seg = Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y);
+      if(u <= seg){
+        const f = u/seg;
+        ctx.fillStyle = 'rgba(255,255,240,0.9)';
+        ctx.beginPath();
+        ctx.arc(lerp(pts[i-1].x,pts[i].x,f), lerp(pts[i-1].y,pts[i].y,f),
+                Math.max(1.4, L.cell*0.028), 0, TAU);
+        ctx.fill();
+        break;
+      }
+      u -= seg;
+    }
+  }
+  ctx.restore();
+}
+
+/* ---------------------------------------------------------------- 09 界面 */
+/* 中文数字：一 … 三十六 */
+function cnNum(n){
+  const d = ['零','一','二','三','四','五','六','七','八','九'];
+  if(n < 10) return d[n];
+  if(n === 10) return '十';
+  if(n < 20) return '十' + d[n % 10];
+  if(n % 10 === 0) return d[Math.floor(n/10)] + '十';
+  return d[Math.floor(n/10)] + '十' + d[n % 10];
+}
+
+function setFont(size, weight){
+  ctx.font = (weight||'400') + ' ' + size +
+    'px "Songti SC","STSong","Noto Serif SC",Georgia,serif';
+}
+function textWidth(str, size, tracking){
+  ctx.save();
+  setFont(size);
+  try{ ctx.letterSpacing = (tracking||0) + 'px'; }catch(e){}
+  const w = ctx.measureText(str).width;
+  ctx.restore();
+  return w;
+}
+function typeText(str, x, y, size, color, tracking, align){
+  ctx.save();
+  setFont(size);
+  ctx.fillStyle = color;
+  ctx.textAlign = align || 'center';
+  ctx.textBaseline = 'middle';
+  try{ ctx.letterSpacing = (tracking||0) + 'px'; }catch(e){}
+  ctx.fillText(str, x, y);
+  ctx.restore();
+}
+
+function hitTest(x, y){
+  for(let i=state.hits.length-1;i>=0;i--){
+    const h = state.hits[i];
+    if(x >= h.x && x <= h.x+h.w && y >= h.y && y <= h.y+h.h) return h;
+  }
+  return null;
+}
+
+function drawButtonRow(items, cy, size, tracking, gap){
+  let total = 0;
+  for(const it of items){ it.w = textWidth(it.label, size, tracking) + size*1.55; total += it.w; }
+  total += gap*(items.length-1);
+  let x = W/2 - total/2;
+  for(const it of items){
+    state.hits.push({ id:it.id, x, y:cy-size*1.15, w:it.w, h:size*2.5 });
+    const hover = state.hoverHit === it.id && !it.muted;
+    let col;
+    if(it.muted) col = 'rgba(120,97,70,0.24)';
+    else if(hover) col = 'rgba(59,49,40,0.95)';
+    else if(it.warm) col = 'rgba(150,104,50,0.90)';
+    else col = 'rgba(120,97,70,0.75)';
+    typeText(it.label, x + it.w/2, cy, size, col, tracking);
+    if(!it.muted){
+      ctx.strokeStyle = it.warm ? 'rgba(193,130,63,0.42)' : 'rgba(120,97,70,0.24)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + it.w*0.20, cy + size*0.98);
+      ctx.lineTo(x + it.w*0.80, cy + size*0.98);
+      ctx.stroke();
+    }
+    x += it.w + gap;
+  }
+}
+
+/* 纸页的细双线边框 */
+function drawFrame(){
+  const m = metrics();
+  const inset = m.short ? 12 : m.narrow ? 14 : 26;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(120,97,70,0.32)'; ctx.lineWidth = 1;
+  ctx.strokeRect(inset, inset, W-inset*2, H-inset*2);
+  ctx.strokeStyle = 'rgba(120,97,70,0.16)';
+  ctx.strokeRect(inset+6, inset+6, W-(inset+6)*2, H-(inset+6)*2);
+  ctx.restore();
+}
+
+function drawTitle(t){
+  drawPaper();
+  const m = metrics();
+  const cx = W/2;
+  drawFrame();
+
+  const ts    = clamp(Math.min(W*0.125, H*0.15), 40, 116);
+  const sub1  = clamp(W*0.019, 12, 17);
+  const sub2  = clamp(W*0.016, 10, 14);
+  const btn   = clamp(W*0.020, 12.5, 18);
+  const stat  = Math.max(9.5, sub2*0.94);
+  const lampH = ts*0.44;
+  const y1 = lampH + ts*0.74;            // 题
+  const y2 = y1 + ts*0.62;               // 细线
+  const y3 = y2 + sub1*1.5;              // 说明一
+  const y4 = y3 + sub2*2.1;              // 说明二
+  const y5 = y4 + btn*2.2;               // 主按钮
+  const y6 = y5 + btn*2.3;               // 三卷进度
+  const y7 = y6 + stat*1.9;              // 已点亮
+  const y8 = y7 + stat*1.6;              // 注
+  const total = y8 + sub2*1.4;
+  const top = clamp((H - total)/2, m.narrow ? 28 : 40, Math.max(44, H*0.5));
+
+  lampGlow(cx, top + lampH/2, ts*0.70, 0.9);
+  lampShape(cx, top + lampH/2, lampH, lampH*0.68, true, t);
+
+  drawMotes(t, 16);
+  drawVignette();
+
+  typeText('提灯', cx, top + y1, ts, INK, ts*0.16);
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(59,49,40,0.52)';
+  ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(cx-ts*0.62, top + y2);
+  ctx.quadraticCurveTo(cx, top + y2 + ts*0.08, cx+ts*0.60, top + y2 - ts*0.02);
+  ctx.stroke();
+  ctx.restore();
+
+  typeText('一束光走在纸上。转动镜子，让它落进灯里。', cx, top + y3,
+           sub1, 'rgba(59,49,40,0.72)', 1.5);
+  typeText('三卷 · 共三十六盏 · 没有时间 · 没有失败', cx, top + y4,
+           sub2, 'rgba(120,97,70,0.66)', 1.2);
+
+  const running = hasRun() && !run.done;
+  const mainLabel = running ? '继 续 闯 关 · 第 ' + cnNum(run.pos+1) + ' 盏'
+                  : hasRun() ? '再 走 一 趟'
+                  : '开 始 闯 关';
+  const items = [{ id:'run', label:mainLabel, warm:true },
+                 { id:'codex', label:'关 卡 图 鉴' }];
+  if(running) items.push({ id:'fresh', label:'重 挑 一 趟' });
+  const gap = m.narrow ? 14 : 26;
+  drawButtonRow(items, top + y5, m.narrow ? Math.min(btn, 13) : btn, 2, gap);
+
+  typeText('初灯 ' + tierSolved(1) + '/12 · 夜行 ' + tierSolved(2) + '/12 · 长明 '
+           + tierSolved(3) + '/12', cx, top + y6, stat, 'rgba(120,97,70,0.62)', 1);
+  typeText('已 点 亮 ' + cnNum(solvedCount()) + ' / 三十六', cx, top + y7,
+           stat, 'rgba(150,104,50,0.66)', 1.6);
+  typeText('闯关每趟十盏：初灯三、夜行四、长明三，越走越难。', cx, top + y8,
+           Math.max(9, sub2*0.88), 'rgba(120,97,70,0.45)', 0.6);
+}
+
+/* ---- 图鉴 ---- */
+function drawMiniMirror(cx, cy, s, m, alpha){
+  const dx = s*0.30, dy = s*0.30;
+  ctx.strokeStyle = 'rgba(59,49,40,' + alpha + ')';
+  ctx.lineWidth = Math.max(1.2, s*0.13);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  if(m === '\\'){ ctx.moveTo(cx-dx, cy-dy); ctx.lineTo(cx+dx, cy+dy); }
+  else          { ctx.moveTo(cx-dx, cy+dy); ctx.lineTo(cx+dx, cy-dy); }
+  ctx.stroke();
+}
+
+function drawMiniGrid(spec, bx, by, cell){
+  const gw = spec.cols*cell, gh = spec.rows*cell;
+  ctx.save();
+
+  ctx.strokeStyle = 'rgba(120,97,70,0.13)';
+  ctx.lineWidth = 1;
+  for(let c=1;c<spec.cols;c++){
+    ctx.beginPath(); ctx.moveTo(bx+c*cell, by); ctx.lineTo(bx+c*cell, by+gh); ctx.stroke();
+  }
+  for(let r=1;r<spec.rows;r++){
+    ctx.beginPath(); ctx.moveTo(bx, by+r*cell); ctx.lineTo(bx+gw, by+r*cell); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(120,97,70,0.22)';
+  ctx.strokeRect(bx, by, gw, gh);
+
+  const at = (c,r)=>({ x:bx+(c+0.5)*cell, y:by+(r+0.5)*cell });
+
+  for(const [c,r] of (spec.walls||[])){
+    ctx.fillStyle = 'rgba(59,49,40,0.55)';
+    ctx.fillRect(bx+c*cell+cell*0.18, by+r*cell+cell*0.18, cell*0.64, cell*0.64);
+  }
+  for(const [c,r] of spec.lamps){
+    const p = at(c,r);
+    lampShape(p.x, p.y, cell*0.50, cell*0.40, true, 0);
+  }
+  for(const s of (spec.mirrors||[])){
+    const p = at(s.c, s.r);
+    drawMiniMirror(p.x, p.y, cell, s.sol || s.init || '/', 0.72);
+  }
+  for(const s of (spec.locks||[])){
+    const p = at(s.c, s.r);
+    drawMiniMirror(p.x, p.y, cell, s.m, 0.50);
+    ctx.fillStyle = 'rgba(120,97,70,0.55)';
+    ctx.beginPath(); ctx.arc(p.x+cell*0.24, p.y-cell*0.24, Math.max(1, cell*0.065), 0, TAU); ctx.fill();
+  }
+  for(const s of (spec.gates||[])){
+    const p = at(s.c, s.r);
+    drawMiniMirror(p.x, p.y, cell, s.m, 0.45);
+    ctx.strokeStyle = 'rgba(150,104,50,0.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(p.x, p.y, cell*0.13, 0, TAU); ctx.stroke();
+  }
+  for(const s of (spec.splitters||[])){
+    const p = at(s.c, s.r);
+    drawMiniMirror(p.x, p.y, cell, s.m, 0.62);
+    ctx.strokeStyle = 'rgba(150,104,50,0.60)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(p.x-cell*0.20, p.y); ctx.lineTo(p.x+cell*0.20, p.y);
+    ctx.moveTo(p.x, p.y-cell*0.20); ctx.lineTo(p.x, p.y+cell*0.20);
+    ctx.stroke();
+  }
+  for(const [c,r] of (spec.switches||[])){
+    const p = at(c,r);
+    ctx.fillStyle = 'rgba(255,246,228,0.9)';
+    ctx.beginPath(); ctx.arc(p.x, p.y, cell*0.15, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(120,97,70,0.62)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  for(const s of spec.starts){
+    const p = at(s.c, s.r);
+    ctx.fillStyle = 'rgba(255,190,107,0.95)';
+    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(1.4, cell*0.12), 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawCodexCard(card, t){
+  const spec = card.spec, x = card.x, y = card.y, w = card.w, h = card.h;
+  const m = metrics();
+  const solved = !!progress.solved[spec.id];
+  const sel = state.codexSel === spec.id;
+  const hover = state.hoverHit === ('card-'+spec.id);
+
+  ctx.save();
+  ctx.fillStyle = sel ? 'rgba(255,246,226,0.94)'
+                : hover ? 'rgba(255,249,236,0.76)' : 'rgba(255,249,236,0.52)';
+  rrPath(x, y, w, h, 5); ctx.fill();
+  ctx.lineWidth = sel ? 1.6 : 1;
+  ctx.strokeStyle = sel ? 'rgba(193,130,63,0.85)'
+                    : solved ? 'rgba(193,130,63,0.42)' : 'rgba(120,97,70,0.28)';
+  ctx.stroke();
+
+  if(solved){
+    lampGlow(x+w-10, y+10, 9, 0.5);
+    ctx.fillStyle = 'rgba(193,130,63,0.92)';
+    ctx.beginPath(); ctx.arc(x+w-10, y+10, 2.6, 0, TAU); ctx.fill();
+  }
+
+  const labelH = Math.min(16, h*0.16);
+  const pad = Math.max(5, Math.min(w, h)*0.09);
+  const bw = w - pad*2, bh = h - pad*2 - labelH;
+  const cell = Math.min(bw/spec.cols, bh/spec.rows);
+  const bx = x + (w - cell*spec.cols)/2;
+  const by = y + pad + Math.max(0, (bh - cell*spec.rows)/2);
+  drawMiniGrid(spec, bx, by, cell);
+
+  if(labelH > 0){
+    typeText(spec.title, x+w/2, y+h-labelH*0.52, Math.max(8, labelH*0.62),
+             solved ? 'rgba(150,104,50,0.92)' : 'rgba(120,97,70,0.62)', 0.8);
+  }
+  ctx.restore();
+}
+
+function drawCodex(t){
+  drawPaper();
+  drawFrame();
+  const m = metrics();
+  const cx = W/2;
+  const g = codexLayout();
+  const kick = clamp(Math.min(W*0.016, m.headerH*0.105), 9, 12);
+  const tsize = clamp(Math.min(W*0.030, m.headerH*0.20), 13, 20);
+
+  drawMotes(t, 16);
+
+  const hr = headerRows();
+  typeText('已 点 亮 ' + cnNum(solvedCount()) + ' / ' + cnNum(N),
+           cx, hr.kicker, kick, 'rgba(120,97,70,0.72)', 2);
+  typeText('关 卡 图 鉴', cx, hr.title, tsize, 'rgba(59,49,40,0.88)', 4);
+  typeText('三卷，每卷十二盏。轻点一盏，看看它。', cx, hr.hint,
+           Math.max(9, kick*0.95), 'rgba(120,97,70,0.64)', 0.8);
+
+  /* 三卷的页签 */
+  const tabSize = clamp(W*0.014, 10.5, 13.5);
+  const labels = TIERS.map((tr,i)=> tr.name + ' ' + tierSolved(i+1) + '/12');
+  const gap = m.narrow ? 12 : 26;
+  const widths = labels.map(l => textWidth(l, tabSize, 1.2) + tabSize*1.1);
+  let tw = widths.reduce((a,b)=>a+b, 0) + gap*(labels.length-1);
+  let tx = cx - tw/2;
+  labels.forEach((l,i)=>{
+    state.hits.push({ id:'tab'+(i+1), x:tx, y:g.tabsY-tabSize*1.3,
+                      w:widths[i], h:tabSize*2.6 });
+    const on = state.codexTier === i+1;
+    const hot = state.hoverHit === 'tab'+(i+1);
+    typeText(l, tx + widths[i]/2, g.tabsY, tabSize,
+             on ? 'rgba(150,104,50,0.92)' : hot ? 'rgba(59,49,40,0.80)'
+                : 'rgba(120,97,70,0.52)', 1.2);
+    if(on){
+      ctx.strokeStyle = 'rgba(193,130,63,0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(tx + widths[i]*0.22, g.tabsY + tabSize*1.05);
+      ctx.lineTo(tx + widths[i]*0.78, g.tabsY + tabSize*1.05);
+      ctx.stroke();
+    }
+    tx += widths[i] + gap;
+  });
+
+  for(const card of codexCards()){
+    state.hits.push({ id:'card-'+card.spec.id, x:card.x, y:card.y, w:card.w, h:card.h });
+    drawCodexCard(card, t);
+  }
+
+  const selSpec = state.codexSel ? specById(state.codexSel) : null;
+
+  if(m.short){
+    /* 横屏：页脚只留一行简介与一个「提灯」，把高度都让给十二张卡片 */
+    if(selSpec){
+      typeText('《 ' + selSpec.title + ' 》 ' + selSpec.hint, cx, H - 44,
+               Math.max(9.5, kick*0.9), 'rgba(120,97,70,0.74)', 0.5);
+      drawButtonRow([{ id:'go', label:'提灯 · 走这一关', warm:true }], H - 24, 10.5, 2, 0);
+    } else {
+      typeText('轻 点 一 盏 ， 看 看 它 。', cx, H - 28, Math.max(10, kick*0.95),
+               'rgba(120,97,70,0.46)', 1.6);
+    }
+    return;
+  }
+
+  if(selSpec){
+    typeText('《 ' + selSpec.title + ' 》', cx, m.captionY, clamp(W*0.020, 14, 19),
+             'rgba(59,49,40,0.88)', 3);
+    typeText(selSpec.hint, cx, m.progressY, Math.max(9.5, kick*0.96),
+             'rgba(120,97,70,0.66)', 0.8);
+    drawButtonRow([{ id:'go', label:'提灯 · 走这一关', warm:true }],
+                  m.buttonY, m.narrow ? 12 : 13, 2, 0);
+  } else {
+    typeText('先挑一盏。', cx, m.progressY, Math.max(10, kick*1.05),
+             'rgba(120,97,70,0.45)', 2);
+  }
+
+  const tip = m.narrow ? '轻点一盏 · 再点「提灯」' : '轻点一盏看简介 · 回车走这一关 · Esc 返回';
+  typeText(tip, cx, m.hintY, Math.max(9, kick*0.92), 'rgba(120,97,70,0.48)', 1);
+}
+
+/* ---- 下棋 ---- */
+function drawLampRow(y, t, ids, current, prefix, reachable){
+  const m = metrics();
+  const n = ids.length;
+  const span = m.narrow ? (W - 44) : Math.min(W*0.62, 760);
+  const gap = n > 1 ? span/(n-1) : 0;
+  const h = m.narrow ? 12 : 15;
+  const w = m.narrow ? 8 : 10;
+  const x0 = W/2 - span/2;
+
+  for(let i=0;i<n;i++){
+    const x = x0 + i*gap;
+    const done = !!progress.solved[ids[i]];
+    const locked = reachable !== undefined && i > reachable;
+    const isCur = i === current;
+    const hover = state.hoverHit === (prefix+i);
+    state.hits.push({ id:prefix+i, x:x-Math.max(9,gap/2), y:y-16,
+                      w:Math.max(18,gap), h:32, enabled:!locked });
+
+    ctx.save();
+    ctx.globalAlpha = locked ? 0.22 : done ? 1 : hover ? 0.9 : 0.58;
+    if(done) lampGlow(x, y-1, h*1.1, 0.5);
+    lampShape(x, y, h, w, done, t + i*260);
+    ctx.restore();
+
+    if(isCur){
+      ctx.fillStyle = 'rgba(193,130,63,0.9)';
+      ctx.beginPath(); ctx.arc(x, y + h*0.74, 2, 0, TAU); ctx.fill();
+    }
+  }
+}
+
+function drawPlay(t){
+  const lv = state.level;
+  const m = metrics();
+  const tr = state.tr;
+  drawPaper();
+
+  ctx.save();
+  const fa = ease(clamp((performance.now() - state.startT)/420, 0, 1));
+  ctx.globalAlpha = fa;
+
+  drawGrid();
+
+  /* 光束在最下层，物件压在上面，才像“光从物件间穿过” */
+  for(const b of tr.beams) drawBeam(b, t);
+
+  for(const w of lv.walls) drawWall(w);
+  for(const sw of lv.switches) drawSwitch(sw, tr.switches.has(sw.c+','+sw.r), t);
+  for(const sp of lv.splitters) drawSplitter(sp);
+  for(const lk of lv.locks) drawLock(lk);
+  for(const g of lv.gates) drawGate(g, tr.gatesOn, t);
+
+  for(const lamp of lv.lamps) drawLamp(lamp, tr.lit.has(lamp.c+','+lamp.r), t);
+
+  for(const cell of lv.mirrors){
+    const hot = state.hover && state.hover.c===cell.c && state.hover.r===cell.r;
+    const sel = state.sel && state.sel.c===cell.c && state.sel.r===cell.r;
+    drawMirror(cell, hot, sel, t);
+  }
+  for(const st of lv.starts) drawSource(st);
+  ctx.restore();
+
+  drawMotes(t, 16);
+  drawVignette();
+
+  /* ---- 页眉 ---- */
+  const kickSize = clamp(Math.min(W*0.016, m.headerH*0.105), 9, 12);
+  const titleSize = clamp(Math.min(W*0.038, m.headerH*0.22), 13, 22);
+  const hintSize = Math.max(8.5, kickSize*0.95);
+  const tierList = tierSpecs(lv.tier);
+  const inTier = tierList.findIndex(s => s.id === lv.id) + 1;
+  const kick = state.runMode
+    ? '这一趟 · 第 ' + cnNum(run.pos+1) + ' 盏 · 共 ' + cnNum(RUN_LEN)
+    : TIERS[lv.tier-1].name + ' · 第 ' + cnNum(inTier) + ' 盏';
+
+  const hr = headerRows();
+  typeText(kick, W/2, hr.kicker, kickSize, 'rgba(120,97,70,0.72)', 3);
+  typeText('《 ' + lv.title + ' 》', W/2, hr.title,
+           titleSize, 'rgba(59,49,40,0.88)', 3);
+  typeText(lv.hint, W/2, hr.hint,
+           hintSize, 'rgba(120,97,70,0.66)', 0.8);
+
+  /* 左上角的回头路（窄屏收到页脚里，免得压住页眉） */
+  if(!m.narrow){
+    const label = '← 图鉴';
+    const tw = textWidth(label, kickSize, 0.5);
+    typeText(label, m.padX, m.headerH*0.30, kickSize, 'rgba(120,97,70,0.50)', 0.5, 'left');
+    state.hits.push({ id:'codex', x:m.padX-8, y:m.headerH*0.30-kickSize,
+                      w:tw+16, h:kickSize*2 });
+  }
+
+  /* ---- 页脚：通关的一句、灯盏、按钮、提示 ---- */
+  if(state.solved){
+    const a = ease(clamp((performance.now() - state.solveT)/520, 0, 1));
+    ctx.save();
+    ctx.globalAlpha = a;
+    const line = state.runDone ? '这一趟走完了。' : lv.line;
+    typeText(line, W/2, m.captionY, clamp(W*0.023, 15, 21),
+             'rgba(59,49,40,0.90)', 4);
+    ctx.restore();
+  } else if(progress.solved[lv.id]){
+    typeText('这盏已经亮过', W/2, m.captionY, Math.max(10, kickSize*0.95),
+             'rgba(120,97,70,0.48)', 2);
+  }
+
+  if(!m.short){
+    if(state.runMode && hasRun()){
+      drawLampRow(m.progressY, t, run.ids, run.pos, 'rp', run.pos);
+    } else {
+      drawLampRow(m.progressY, t, tierList.map(s=>s.id), inTier-1, 'tp');
+    }
+  }
+
+  if(state.runDone){
+    drawButtonRow([{ id:'again', label:'再 来 一 趟', warm:true },
+                   { id:'back',  label:'回 到 图 鉴' }],
+                  m.buttonY, m.narrow ? 12 : 13, 2, m.narrow ? 20 : 34);
+  } else {
+    const items = [];
+    const canUndo = state.undo.length > 0 && !state.solved;
+    items.push({ id:'undo', label:'撤销', muted:!canUndo });
+    items.push({ id:'reset', label:'重置' });
+    if(m.narrow) items.push({ id:'codex', label:'图鉴' });
+    if(state.solved) items.push({ id:'next', label:'下一盏', warm:true });
+    drawButtonRow(items, m.buttonY, m.narrow ? 12 : 13, 2, m.narrow ? 12 : 20);
+  }
+
+  if(!m.short){
+    const hintText = m.narrow ? '轻点镜子转动 · 光会自己找路'
+                              : '← ↑ ↓ → 选镜 · 空格 转 · Z 撤销 · R 重置 · Esc 图鉴';
+    typeText(hintText, W/2, m.hintY, Math.max(9, kickSize*0.92),
+             'rgba(120,97,70,0.52)', 1.2);
+  }
+}
+
+function drawMotes(t, dt){
+  for(const mo of state.motes){
+    mo.x += mo.vx*dt*0.001; mo.y += mo.vy*dt*0.001;
+    if(mo.y < -0.05){ mo.y = 1.05; mo.x = Math.random(); }
+    if(mo.x < -0.05) mo.x = 1.05;
+    if(mo.x > 1.05) mo.x = -0.05;
+    const a = mo.a * (0.55 + 0.45*Math.sin(t*0.0011 + mo.ph));
+    ctx.beginPath();
+    ctx.arc(mo.x*W, mo.y*H, mo.r, 0, TAU);
+    ctx.fillStyle = 'rgba(193,130,63,' + a.toFixed(3) + ')';
+    ctx.fill();
+  }
+}
+function drawVignette(){
+  const g = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.34,
+                                     W/2, H/2, Math.max(W,H)*0.78);
+  g.addColorStop(0,'rgba(120,90,55,0)');
+  g.addColorStop(1,'rgba(96,70,40,0.30)');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+}
+
+/* ---------------------------------------------------------------- 10 输入 */
+function refreshTrace(){
+  const lv = state.level;
+  if(!lv) return;
+  state.tr = traceLevel(lv);
+  for(const sw of lv.switches) sw.lit = state.tr.switches.has(sw.c+','+sw.r);
+}
+function checkSolved(){
+  const lv = state.level;
+  if(!lv || state.solved) return;
+  if(state.tr.lit.size < lv.lamps.length) return;
+  state.solved = true;
+  state.solveT = performance.now();
+  progress.solved[lv.id] = true;
+  saveProgress();
+  sfx.solve();
+  if(state.runMode && run.pos === RUN_LEN-1 && !run.done){
+    run.done = true;
+    saveRun();
+  }
+  state.runDone = state.runMode && run.done;
+}
+
+function snapshot(){
+  state.undo.push(state.level.mirrors.map(x=>x.m));
+  if(state.undo.length > 80) state.undo.shift();
+}
+function rotate(cell){
+  if(!cell || cell.type !== 'mirror' || state.solved) return;
+  snapshot();
+  cell.m = otherMirror(cell.m);
+  sfx.turn();
+  refreshTrace();
+  checkSolved();
+}
+function undo(){
+  if(state.solved || !state.undo.length) return;
+  const snap = state.undo.pop();
+  state.level.mirrors.forEach((x,i)=>{ x.m = snap[i]; });
+  refreshTrace();
+  checkSolved();
+}
+
+/* ---- 场景切换 ---- */
+function loadLevelById(id){
+  const spec = specById(id);
+  state.level = buildLevel(spec, SPECS.indexOf(spec));
+  state.levelId = spec.id;
+  state.tier = spec.tier;
+  state.solved = false;
+  state.solveT = 0;
+  state.startT = performance.now();
+  state.undo = [];
+  state.hover = null;
+  state.hoverHit = null;
+  state.sel = state.level.mirrors.length
+    ? { c:state.level.mirrors[0].c, r:state.level.mirrors[0].r } : null;
+  state.runDone = state.runMode && run.done;
+  state.mode = 'play';
+  refreshTrace();
+  layout();
+}
+function resetLevel(){ loadLevelById(state.levelId); }
+
+function startRun(){
+  run.ids = makeRunPick();
+  run.pos = 0;
+  run.done = false;
+  saveRun();
+  state.runMode = true;
+  state.runDone = false;
+  loadLevelById(run.ids[0]);
+}
+function resumeRun(){
+  if(!hasRun()){ startRun(); return; }
+  state.runMode = true;
+  state.runDone = !!run.done;
+  loadLevelById(run.ids[run.pos]);
+}
+function openCodex(tier){
+  state.mode = 'codex';
+  state.codexTier = clamp(tier || state.codexTier || 1, 1, 3);
+  if(state.codexSel && specById(state.codexSel).tier !== state.codexTier) state.codexSel = null;
+  ac();
+}
+function pickFromCodex(id){
+  state.runMode = false;
+  state.runDone = false;
+  loadLevelById(id);
+}
+function advance(){
+  if(state.runMode && hasRun()){
+    if(run.pos < RUN_LEN-1){
+      run.pos++;
+      saveRun();
+      loadLevelById(run.ids[run.pos]);
+    } else if(!run.done){
+      run.done = true;
+      saveRun();
+      state.runDone = true;
+    }
+    return;
+  }
+  /* 图鉴单挑：同卷下一盏，走到卷尾就回图鉴 */
+  const list = tierSpecs(state.level.tier);
+  const i = list.findIndex(s => s.id === state.levelId);
+  if(i >= 0 && i < list.length-1) loadLevelById(list[i+1].id);
+  else openCodex(state.level.tier);
+}
+
+function activate(hit){
+  if(!hit) return;
+  const id = hit.id;
+
+  if(id === 'run'){ ac(); if(hasRun() && !run.done) resumeRun(); else startRun(); return; }
+  if(id === 'fresh'){ ac(); startRun(); return; }
+  if(id === 'again'){ ac(); startRun(); return; }
+  if(id === 'codex'){ openCodex(state.mode === 'play' ? state.tier : 1); return; }
+  if(id === 'back'){ openCodex(state.tier || 1); return; }
+  if(id === 'go'){ if(state.codexSel){ ac(); pickFromCodex(state.codexSel); } return; }
+  if(id === 'undo'){ undo(); return; }
+  if(id === 'reset'){ ac(); resetLevel(); return; }
+  if(id === 'next'){ ac(); advance(); return; }
+
+  if(id.indexOf('card-') === 0){ ac(); state.codexSel = id.slice(5); return; }
+  if(id.indexOf('tab') === 0){
+    ac();
+    state.codexTier = clamp(parseInt(id.slice(3),10) || 1, 1, 3);
+    state.codexSel = null;
+    return;
+  }
+  if(id.indexOf('rp') === 0){
+    const i = parseInt(id.slice(2),10);
+    if(state.runMode && i >= 0 && i <= run.pos){
+      ac(); run.pos = i; saveRun(); loadLevelById(run.ids[i]);
+    }
+    return;
+  }
+  if(id.indexOf('tp') === 0){
+    const i = parseInt(id.slice(2),10);
+    const list = tierSpecs(state.codexTier);
+    if(list[i]){ ac(); pickFromCodex(list[i].id); }
+    return;
+  }
+}
+
+function pointerPos(e){
+  const r = cvs.getBoundingClientRect();
+  return { x:e.clientX - r.left, y:e.clientY - r.top };
+}
+function onDown(e){
+  /* 键盘只在画布获得焦点时生效，避免在平台页面里抢全局按键 */
+  try{ cvs.focus({ preventScroll: true }); }catch(err){ cvs.focus(); }
+  const p = pointerPos(e);
+  const hit = hitTest(p.x, p.y);
+  if(hit){ activate(hit); return; }
+  if(state.mode === 'title'){
+    ac();
+    if(hasRun() && !run.done) resumeRun(); else startRun();
+    return;
+  }
+  if(state.mode === 'codex') return;
+  if(!state.level) return;
+  const cell = pickCell(p.x, p.y);
+  if(!cell) return;
+  const obj = cellAt(cell.c, cell.r);
+  if(obj && (obj.type === 'lock' || obj.type === 'gate')){
+    sfx.stone();
+    state.bump = { c:cell.c, r:cell.r, until:performance.now() + 260 };
+    return;
+  }
+  state.sel = { c:cell.c, r:cell.r };
+  rotate(obj);
+}
+function onMove(e){
+  const p = pointerPos(e);
+  const hit = hitTest(p.x, p.y);
+  state.hoverHit = hit ? hit.id : null;
+
+  if(state.mode !== 'play' || !state.level){
+    state.hover = null;
+    cvs.style.cursor = hit ? 'pointer' : 'default';
+    return;
+  }
+  state.hover = hit ? null : pickCell(p.x, p.y);
+  let actionable = false;
+  if(hit){
+    actionable = hit.enabled !== false;
+  } else if(state.hover && !state.solved){
+    const o = cellAt(state.hover.c, state.hover.r);
+    actionable = !!(o && o.type === 'mirror');
+  }
+  cvs.style.cursor = actionable ? 'pointer' : 'default';
+}
+function onLeave(){
+  state.hover = null;
+  state.hoverHit = null;
+  cvs.style.cursor = 'default';
+}
+
+function moveSelection(dc, dr){
+  const list = state.level ? state.level.mirrors : null;
+  if(!list || !list.length) return;
+  if(!state.sel){ state.sel = { c:list[0].c, r:list[0].r }; return; }
+  let best = null, bestScore = Infinity;
+  for(const mo of list){
+    const dx = mo.c - state.sel.c, dy = mo.r - state.sel.r;
+    const along = dx*dc + dy*dr;
+    if(along <= 0) continue;
+    const cross = Math.abs(dx*dr - dy*dc);
+    const score = along + cross*2.2;
+    if(score < bestScore){ bestScore = score; best = mo; }
+  }
+  if(best) state.sel = { c:best.c, r:best.r };
+}
+
+function moveCodexSel(dc, dr){
+  const cards = codexCards();
+  if(!cards.length) return;
+  const g = codexLayout();
+  const n = cards.length;
+  let i = cards.findIndex(c => c.spec.id === state.codexSel);
+  if(i < 0) i = 0;
+  const cols = g.cols, rows = Math.ceil(n/cols);
+  let col = clamp((i % cols) + dc, 0, cols-1);
+  let row = clamp(Math.floor(i/cols) + dr, 0, rows-1);
+  const j = row*cols + col;
+  state.codexSel = cards[Math.min(j, n-1)].spec.id;
+}
+
+cvs.addEventListener('keydown', e=>{
+  const k = e.key;
+
+  if(state.mode === 'title'){
+    if(k === ' ' || k === 'Enter'){
+      e.preventDefault();
+      ac();
+      if(hasRun() && !run.done) resumeRun(); else startRun();
+    }
+    else if(k === 'c' || k === 'C'){ e.preventDefault(); openCodex(1); }
+    return;
+  }
+
+  if(state.mode === 'codex'){
+    if(k === 'Escape'){ e.preventDefault(); state.mode = 'title'; ac(); return; }
+    if(k === ' ' || k === 'Enter'){
+      e.preventDefault();
+      if(state.codexSel) pickFromCodex(state.codexSel);
+      return;
+    }
+    if(k === 'ArrowLeft'){ e.preventDefault(); moveCodexSel(-1, 0); }
+    else if(k === 'ArrowRight'){ e.preventDefault(); moveCodexSel(1, 0); }
+    else if(k === 'ArrowUp'){ e.preventDefault(); moveCodexSel(0, -1); }
+    else if(k === 'ArrowDown'){ e.preventDefault(); moveCodexSel(0, 1); }
+    else if(k === '1' || k === '2' || k === '3'){
+      e.preventDefault();
+      state.codexTier = +k; state.codexSel = null;
+    }
+    return;
+  }
+
+  /* play */
+  if(k === 'Escape'){ e.preventDefault(); openCodex(state.tier); return; }
+  if(k === ' ' || k === 'Enter'){
+    e.preventDefault();
+    ac();
+    if(state.solved){
+      if(k === 'Enter') advance();
+      return;
+    }
+    if(state.sel) rotate(cellAt(state.sel.c, state.sel.r));
+  }
+  else if(k === 'ArrowLeft'){ e.preventDefault(); moveSelection(-1, 0); }
+  else if(k === 'ArrowRight'){ e.preventDefault(); moveSelection(1, 0); }
+  else if(k === 'ArrowUp'){ e.preventDefault(); moveSelection(0, -1); }
+  else if(k === 'ArrowDown'){ e.preventDefault(); moveSelection(0, 1); }
+  else if(k === 'z' || k === 'Z' || k === 'Backspace'){ e.preventDefault(); undo(); }
+  else if(k === 'r' || k === 'R'){ ac(); resetLevel(); }
+});
+
+cvs.addEventListener('pointerdown', onDown);
+cvs.addEventListener('pointermove', onMove);
+cvs.addEventListener('pointerleave', onLeave);
+window.addEventListener('contextmenu', e=>{ if(e.target === cvs) e.preventDefault(); });
+
+/* ---------------------------------------------------------------- 11 主循环 */
+function resize(){
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  cvs.width = Math.round(W*DPR);
+  cvs.height = Math.round(H*DPR);
+  cvs.style.width = W + 'px';
+  cvs.style.height = H + 'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  try{
+    SAFE_B = parseFloat(getComputedStyle(document.documentElement)
+              .getPropertyValue('--sab')) || 0;
+  }catch(e){ SAFE_B = 0; }
+  layout();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', ()=>setTimeout(resize, 60));
+
+let lastFrame = performance.now();
+function frame(now){
+  const dt = Math.min(64, now - lastFrame);
+  lastFrame = now;
+  const t = now - state.t0;
+
+  if(state.mode === 'play' && state.level){
+    for(const mo of state.level.mirrors){
+      const target = mo.m === '\\' ? 1 : 0;
+      mo.spin += (target - mo.spin) * clamp(dt*0.016, 0, 1);
+    }
+  }
+
+  ctx.clearRect(0, 0, W, H);
+  state.hits.length = 0;
+  if(state.mode === 'title') drawTitle(t);
+  else if(state.mode === 'codex') drawCodex(t);
+  else drawPlay(t);
+
+  requestAnimationFrame(frame);
+}
+
+resize();
+requestAnimationFrame(frame);
+
+</script>
+</body>
+</html>
