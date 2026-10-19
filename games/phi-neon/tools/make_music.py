@@ -262,7 +262,7 @@ def lead_note(midi, dur, bright=1.0, gain=1.0, vib=0.0, voices=5):
     right = np.zeros(n)
     for i in range(voices):
         d = (i - (voices - 1) / 2) / max(1, (voices - 1) / 2)
-        cents = d * 10
+        cents = d * 15
         p = phase_of(fr * 2 ** (cents / 1200), n, i * 0.41)
         v = saw(p)
         left += v * (0.6 + 0.4 * (1 - d))
@@ -272,8 +272,16 @@ def lead_note(midi, dur, bright=1.0, gain=1.0, vib=0.0, voices=5):
     env = adsr(n, a=0.01, d=0.12, s=0.72, r=0.28)
     body = np.stack([lp(left, 2600 + 2600 * bright), lp(right, 2600 + 2600 * bright)], axis=1)
     body = body * env[:, None]
+    # 立体声加宽：交换声道后延迟 11ms 叠一层（Haas），比单纯 detune 更有厚度
+    d = int(0.011 * SR)
+    wide = np.zeros_like(body)
+    wide[d:] = body[:-d][:, ::-1]
+    body = body * 0.86 + wide * 0.26
+    # 八度下方衬底，给 lead 一点胸腔
+    sub = np.sin(2 * np.pi * np.cumsum(fr * 0.5) / SR) * env * 0.10
+    body = body + sub[:, None]
     # gentle saturation
-    body = np.tanh(body * 1.5) * 0.62
+    body = np.tanh(body * 1.45) * 0.62
     return body * gain
 
 
@@ -491,6 +499,35 @@ def compressor(x, threshold=0.32, ratio=3.0, attack=0.01, release=0.18):
 # ----------------------------------------------------------------------------
 # mix / mastering helpers
 # ----------------------------------------------------------------------------
+DRUM_STEMS = ("kick", "snare", "clap", "hat", "crash")
+
+
+def drum_glue(mx, gains, total_mix, room_wet=0.16, punch=1.35,
+              room_len=0.42, room_decay=8.5):
+    """Give the kit one shared room: parallel compression + short early tail.
+
+    The drums are re-summed out of the finished mix, squashed in parallel for
+    density, then fed through a 0.4 s room impulse so kick / snare / hats share
+    the same space instead of sounding like five unrelated dry samples.
+    """
+    drum = np.zeros((mx.n, 2))
+    for name in DRUM_STEMS:
+        buf = mx.bus.get(name)
+        if buf is not None:
+            drum += buf[: mx.n] * gains.get(name, 0.5)
+    if not np.any(drum):
+        return total_mix
+    rest = total_mix - drum
+    comp = compressor(drum, threshold=0.14, ratio=4.0, release=0.085)
+    glued = drum * 0.80 + comp * (punch - 1.0) * 0.80
+    ir = make_ir(length=room_len, decay=room_decay, bright=0.40)
+    wet = np.stack([
+        signal.fftconvolve(glued[:, 0], ir[:, 0])[: mx.n],
+        signal.fftconvolve(glued[:, 1], ir[:, 1])[: mx.n],
+    ], axis=1)
+    return rest + glued + wet * room_wet
+
+
 def _st(x):
     """run a 1D-oriented filter over a stereo (n,2) buffer"""
     return x.T if x.ndim == 2 else x
@@ -929,6 +966,7 @@ def build_neon_pulse():
         if stem == "send":
             continue
         mix += buf[: mx.n] * gains.get(stem, 0.5)
+    mix = drum_glue(mx, gains, mix, room_wet=0.16, punch=1.4)
     # sends
     send = np.zeros_like(mix)
     for stem, amt in (("snare", 0.20), ("lead", 0.28), ("arp", 0.30), ("arp2", 0.3),
@@ -1182,6 +1220,7 @@ def build_frostlight():
     mix = np.zeros((mx.n, 2))
     for stem, buf in mx.bus.items():
         mix += buf[: mx.n] * gains.get(stem, 0.5)
+    mix = drum_glue(mx, gains, mix, room_wet=0.15, punch=1.3)
     send = np.zeros_like(mix)
     for stem, amt in (("lead", 0.34), ("bell", 0.4), ("pluck", 0.3), ("piano", 0.4),
                       ("pad", 0.2), ("snare", 0.2), ("clap", 0.18), ("stab", 0.18)):
@@ -1401,6 +1440,7 @@ def build_ion_rush():
     mix = np.zeros((mx.n, 2))
     for stem, buf in mx.bus.items():
         mix += buf[: mx.n] * gains.get(stem, 0.45)
+    mix = drum_glue(mx, gains, mix, room_wet=0.14, punch=1.55)
     send = np.zeros_like(mix)
     for stem, amt in (("lead", 0.22), ("lead2", 0.2), ("stab", 0.14), ("bell", 0.3),
                       ("snare", 0.16), ("acid", 0.12)):
@@ -1555,6 +1595,7 @@ def build_velvet_static():
     mix = np.zeros((mx.n, 2))
     for stem, buf in mx.bus.items():
         mix += buf[: mx.n] * gains.get(stem, 0.4)
+    mix = drum_glue(mx, gains, mix, room_wet=0.2, punch=1.22)
     send = np.zeros_like(mix)
     for stem, amt in (("rhodes", 0.34), ("lead", 0.3), ("bell", 0.4), ("snare", 0.2),
                       ("warmpad", 0.24)):
@@ -1725,6 +1766,7 @@ def build_glass_tide():
     mix = np.zeros((mx.n, 2))
     for stem, buf in mx.bus.items():
         mix += buf[: mx.n] * gains.get(stem, 0.35)
+    mix = drum_glue(mx, gains, mix, room_wet=0.26, punch=1.15)
     send = np.zeros_like(mix)
     for stem, amt in (("glass", 0.55), ("lead", 0.5), ("pad", 0.35), ("snare", 0.3),
                       ("glitch", 0.3)):
